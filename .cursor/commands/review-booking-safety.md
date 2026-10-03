@@ -16,4 +16,11 @@ Check each item and answer with file:line evidence or "VIOLATION":
    Is the outcome explicit (e.g. payment flagged NEEDS_REFUND) and not silently lost?
 9. Are prices read from the DB, never from client input? Is money stored as integers?
 10. Which tests prove items 1-8? Name them. Which items have no test?
+11. For every booking and payment code path (success, failure, duplicate, rejected), is there an
+    event row written through internal/audit with the correct event_type, outcome and reason_code?
+    List any path that returns an error or changes state WITHOUT writing an event.
+12. Are state change and its event row in the SAME transaction? For rolled-back attempts, is the
+    FAILURE event written afterwards without hiding the original error?
+13. Can an admin trace booking -> payment -> payment_events -> tickets for any PAID booking, and are
+    refund rules enforced (one active refund per payment, total refunds <= payment amount)?
 Finish with a ranked list of risks (High/Medium/Low) and a suggested test for each missing proof.

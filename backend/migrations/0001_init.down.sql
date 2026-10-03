@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS refunds;
+DROP TRIGGER IF EXISTS payment_events_append_only ON payment_events;
+DROP TRIGGER IF EXISTS booking_events_append_only ON booking_events;
+DROP TABLE IF EXISTS payment_events;
+DROP TABLE IF EXISTS booking_events;
+DROP FUNCTION IF EXISTS forbid_event_modification();
+DROP TABLE IF EXISTS tickets;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS booking_items;
+DROP TABLE IF EXISTS bookings;
+DROP TABLE IF EXISTS seats;
+DROP TABLE IF EXISTS showtimes;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS users;

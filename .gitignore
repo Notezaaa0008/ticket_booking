@@ -1,8 +1,60 @@
-.env
-.env.local
-node_modules/
-.next/
-*.log
+# ==========================================
+# Operating System & Environment Files
+# ==========================================
 .DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# Node.js & Frontend Dependencies
+# ==========================================
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ==========================================
+# Next.js & Frontend Build Outputs
+# ==========================================
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+frontend/build/
+.vercel
+frontend/.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# ==========================================
+# Go & Backend Build / Temp Files
+# ==========================================
 backend/tmp/
 backend/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ==========================================
+# Logs & Testing
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+coverage/
+frontend/coverage/
+*.pem

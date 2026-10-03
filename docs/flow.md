@@ -1,4 +1,4 @@
-### 4.1 สถาปัตยกรรม
+### 1 สถาปัตยกรรม
 
 ```mermaid
 flowchart LR
@@ -10,7 +10,7 @@ flowchart LR
     MG -->|signed webhook| BE
 ```
 
-### 4.2 Flow การจองและชำระเงิน
+### 2 Flow การจองและชำระเงิน
 
 ```mermaid
 sequenceDiagram
@@ -47,7 +47,7 @@ sequenceDiagram
     BE-->>FE: PAID + tickets (code, QR)
 ```
 
-### 4.3 State ของ Booking
+### 3 State ของ Booking
 
 ```mermaid
 stateDiagram-v2
@@ -61,7 +61,7 @@ stateDiagram-v2
     CANCELLED --> [*]
 ```
 
-### 4.4 Edge cases ที่ต้องมี test
+### 4 Edge cases ที่ต้องมี test
 
 - 2 คนจองที่นั่งเดียวกันพร้อมกัน: สำเร็จ 1 ราย อีกรายได้ 409
 - เลือก 3 ที่นั่ง แต่ที่ 3 ถูกคนอื่นถือ: ต้องปล่อยที่ 1-2 ที่ถือไปแล้ว
@@ -72,7 +72,7 @@ stateDiagram-v2
 - จ่ายสำเร็จหลังหมดเวลา: บันทึกเป็น `NEEDS_REFUND` ไม่ปล่อยให้หายเงียบ ๆ (ต้องให้คนตัดสิน business rule)
 - user ธรรมดาเรียก admin API: 403
 
-### 4.5 รายการ API (ตั้งต้น)
+### 5 รายการ API (ตั้งต้น)
 
 | Method | Path | สิทธิ์ | หมายเหตุ |
 |---|---|---|---|
@@ -93,3 +93,9 @@ stateDiagram-v2
 | POST/PUT/DELETE | `/api/v1/admin/events/:id/showtimes`, `/admin/showtimes/:id` | admin | สร้างรอบ + สร้างที่นั่งอัตโนมัติ (แถว x คอลัมน์) |
 | GET | `/api/v1/admin/bookings`, `/admin/stats` | admin | |
 | POST | `/api/v1/admin/tickets/:code/check-in` | admin | |
+| GET | `/api/v1/payments/:id` | user (เจ้าของ) | status + failure_code + failure_message |
+| GET | `/api/v1/admin/bookings/:id/timeline` | admin | booking_events + payment_events รวมตามเวลา |
+| GET | `/api/v1/admin/payments?status=` | admin | รวมรายการ NEEDS_REFUND |
+| POST | `/api/v1/admin/payments/:id/refunds` | admin | สร้างคำขอคืนเงิน (Idempotency-Key) |
+| POST | `/api/v1/admin/refunds/:id/process` | admin | ประมวลผลผ่าน mock provider |
+| GET | `/api/v1/admin/refunds` | admin | |

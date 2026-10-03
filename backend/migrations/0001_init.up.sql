@@ -1,148 +1,6 @@
-### 1 ER Diagram
-
-```mermaid
-erDiagram
-    users ||--o{ bookings : makes
-    users ||--o{ booking_events : acts_in
-    users ||--o{ refunds : requests
-    events ||--o{ showtimes : has
-    showtimes ||--o{ seats : has
-    showtimes ||--o{ bookings : for
-    bookings ||--|{ booking_items : contains
-    seats ||--o{ booking_items : reserved_by
-    bookings ||--o{ payments : paid_by
-    booking_items ||--o| tickets : issues
-    bookings ||--o{ booking_events : logs
-    bookings ||--o{ payment_events : relates_to
-    payments ||--o{ payment_events : logs
-    payments ||--o{ refunds : refunded_by
-    bookings ||--o{ refunds : for
-
-    users {
-        uuid id PK
-        text email UK
-        text password_hash
-        text name
-        text role
-        timestamptz created_at
-    }
-    events {
-        uuid id PK
-        text title
-        text description
-        text venue
-        text poster_url
-        text status
-        timestamptz created_at
-    }
-    showtimes {
-        uuid id PK
-        uuid event_id FK
-        timestamptz starts_at
-        text status
-        timestamptz created_at
-    }
-    seats {
-        uuid id PK
-        uuid showtime_id FK
-        text row_label
-        int seat_number
-        text zone
-        bigint price_satang
-    }
-    bookings {
-        uuid id PK
-        uuid user_id FK
-        uuid showtime_id FK
-        text status
-        bigint total_satang
-        timestamptz expires_at
-        timestamptz created_at
-    }
-    booking_items {
-        uuid id PK
-        uuid booking_id FK
-        uuid seat_id FK
-        bigint price_satang
-        boolean active
-    }
-    payments {
-        uuid id PK
-        uuid booking_id FK
-        bigint amount_satang
-        text status
-        text provider_ref
-        text idempotency_key UK
-        text failure_code
-        text failure_message
-        timestamptz paid_at
-        timestamptz created_at
-    }
-    tickets {
-        uuid id PK
-        uuid booking_item_id FK
-        text code UK
-        text status
-        timestamptz issued_at
-        timestamptz checked_in_at
-    }
-    booking_events {
-        uuid id PK
-        uuid booking_id FK
-        uuid user_id FK
-        uuid showtime_id FK
-        text event_type
-        text outcome
-        text reason_code
-        text from_status
-        text to_status
-        text actor_type
-        uuid actor_id
-        jsonb metadata
-        timestamptz created_at
-    }
-    payment_events {
-        uuid id PK
-        uuid payment_id FK
-        uuid booking_id FK
-        text event_type
-        text outcome
-        text reason_code
-        text from_status
-        text to_status
-        bigint amount_satang
-        text provider_ref
-        boolean signature_valid
-        text actor_type
-        uuid actor_id
-        jsonb raw_payload
-        timestamptz created_at
-    }
-    refunds {
-        uuid id PK
-        uuid payment_id FK
-        uuid booking_id FK
-        bigint amount_satang
-        text status
-        text reason_code
-        text note
-        uuid requested_by FK
-        uuid processed_by FK
-        text provider_ref
-        text failure_code
-        timestamptz created_at
-        timestamptz completed_at
-    }
-```
-
-### 2 SQL (ใช้เป็นต้นแบบ migration `0001_init.up.sql`)
-
-```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- ============================================================
 -- users
--- ============================================================
 CREATE TABLE users (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email         text NOT NULL UNIQUE,
@@ -152,9 +10,7 @@ CREATE TABLE users (
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 
--- ============================================================
 -- events / showtimes / seats
--- ============================================================
 CREATE TABLE events (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     title       text NOT NULL,
@@ -187,9 +43,7 @@ CREATE TABLE seats (
     UNIQUE (showtime_id, row_label, seat_number)
 );
 
--- ============================================================
 -- bookings / booking_items
--- ============================================================
 CREATE TABLE bookings (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      uuid NOT NULL REFERENCES users(id),
@@ -211,14 +65,12 @@ CREATE TABLE booking_items (
     price_satang bigint NOT NULL CHECK (price_satang >= 0),
     active       boolean NOT NULL DEFAULT true
 );
--- กันจองซ้ำ: 1 ที่นั่งมี item ที่ active ได้แค่ 1 รายการ (ด่านสุดท้ายที่สำคัญที่สุด)
+-- One seat can have only ONE active item: the last line of defence against double booking.
 CREATE UNIQUE INDEX uq_booking_items_active_seat
     ON booking_items(seat_id) WHERE active = true;
 CREATE INDEX idx_booking_items_booking ON booking_items(booking_id);
 
--- ============================================================
 -- payments
--- ============================================================
 CREATE TABLE payments (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     booking_id      uuid NOT NULL REFERENCES bookings(id),
@@ -234,13 +86,10 @@ CREATE TABLE payments (
 );
 CREATE INDEX idx_payments_booking ON payments(booking_id);
 CREATE INDEX idx_payments_status ON payments(status);
--- 1 booking มี payment ที่ PENDING ได้ไม่เกิน 1 รายการ
 CREATE UNIQUE INDEX uq_payments_one_pending_per_booking
     ON payments(booking_id) WHERE status = 'PENDING';
 
--- ============================================================
 -- tickets
--- ============================================================
 CREATE TABLE tickets (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     booking_item_id uuid NOT NULL UNIQUE REFERENCES booking_items(id),
@@ -251,12 +100,10 @@ CREATE TABLE tickets (
     checked_in_at   timestamptz
 );
 
--- ============================================================
--- booking_events (append-only log: การจองสำเร็จ/ล้มเหลว)
--- ============================================================
+-- booking_events (append-only log)
 CREATE TABLE booking_events (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    booking_id  uuid REFERENCES bookings(id),          -- NULL ได้ เมื่อจองล้มเหลวก่อนมี booking
+    booking_id  uuid REFERENCES bookings(id),
     user_id     uuid REFERENCES users(id),
     showtime_id uuid REFERENCES showtimes(id),
     event_type  text NOT NULL,
@@ -272,12 +119,10 @@ CREATE TABLE booking_events (
 CREATE INDEX idx_booking_events_booking ON booking_events(booking_id, created_at);
 CREATE INDEX idx_booking_events_user    ON booking_events(user_id, created_at);
 
--- ============================================================
--- payment_events (append-only log: การจ่ายเงิน, webhook, คืนเงิน)
--- ============================================================
+-- payment_events (append-only log)
 CREATE TABLE payment_events (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    payment_id      uuid REFERENCES payments(id),      -- NULL ได้ เมื่อ webhook อ้าง payment ที่ไม่มีอยู่
+    payment_id      uuid REFERENCES payments(id),
     booking_id      uuid REFERENCES bookings(id),
     event_type      text NOT NULL,
     outcome         text NOT NULL CHECK (outcome IN ('SUCCESS','FAILURE','IGNORED')),
@@ -286,7 +131,7 @@ CREATE TABLE payment_events (
     to_status       text NOT NULL DEFAULT '',
     amount_satang   bigint,
     provider_ref    text NOT NULL DEFAULT '',
-    signature_valid boolean,                           -- เก็บแค่ true/false ไม่เก็บลายเซ็นจริง
+    signature_valid boolean,
     actor_type      text NOT NULL CHECK (actor_type IN ('USER','ADMIN','SYSTEM','GATEWAY')),
     actor_id        uuid,
     raw_payload     jsonb NOT NULL DEFAULT '{}',
@@ -295,7 +140,7 @@ CREATE TABLE payment_events (
 CREATE INDEX idx_payment_events_payment ON payment_events(payment_id, created_at);
 CREATE INDEX idx_payment_events_booking ON payment_events(booking_id, created_at);
 
--- ห้ามแก้/ลบ log: การแก้ไขทำได้ด้วยการเพิ่ม event ใหม่เท่านั้น
+-- Logs are append-only: corrections are new events, never UPDATE/DELETE.
 CREATE FUNCTION forbid_event_modification() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
@@ -310,9 +155,7 @@ CREATE TRIGGER payment_events_append_only
     BEFORE UPDATE OR DELETE ON payment_events
     FOR EACH ROW EXECUTE FUNCTION forbid_event_modification();
 
--- ============================================================
 -- refunds
--- ============================================================
 CREATE TABLE refunds (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_id    uuid NOT NULL REFERENCES payments(id),
@@ -331,26 +174,5 @@ CREATE TABLE refunds (
 );
 CREATE INDEX idx_refunds_payment ON refunds(payment_id);
 CREATE INDEX idx_refunds_status  ON refunds(status);
--- 1 payment มีคำขอคืนเงินที่ยัง active (REQUESTED/COMPLETED) ได้แค่ 1 รายการ
 CREATE UNIQUE INDEX uq_refunds_one_active_per_payment
     ON refunds(payment_id) WHERE status IN ('REQUESTED','COMPLETED');
-```
-
-### 2.1 `0001_init.down.sql` (ลบย้อนกลับตามลำดับ)
-
-```sql
-DROP TABLE IF EXISTS refunds;
-DROP TRIGGER IF EXISTS payment_events_append_only ON payment_events;
-DROP TRIGGER IF EXISTS booking_events_append_only ON booking_events;
-DROP TABLE IF EXISTS payment_events;
-DROP TABLE IF EXISTS booking_events;
-DROP FUNCTION IF EXISTS forbid_event_modification();
-DROP TABLE IF EXISTS tickets;
-DROP TABLE IF EXISTS payments;
-DROP TABLE IF EXISTS booking_items;
-DROP TABLE IF EXISTS bookings;
-DROP TABLE IF EXISTS seats;
-DROP TABLE IF EXISTS showtimes;
-DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS users;
-```

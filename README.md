@@ -5,7 +5,7 @@ Search showtimes and seats, book with a timed seat hold, pay through a mock gate
 **Stack:** Next.js (TypeScript) · Go + Gin + GORM · PostgreSQL 16 · Redis 7
 
 ## Prerequisites
-Go 1.22+, Node.js 20+, Docker Desktop (running), Git.
+Go 1.26+, Node.js 20+, Docker Desktop (running), Git.
 
 ## Quick start
 ```bash

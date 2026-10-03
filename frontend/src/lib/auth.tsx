@@ -42,11 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
 
   const state: AuthState = useMemo(() => {
-    if (!hasToken) {
-      // Avoid SSR/hydration false "logged out" before client reads localStorage.
-      if (user === undefined) return { status: "loading" };
-      return { status: "anonymous" };
-    }
+    // hasToken comes from useSyncExternalStore(getToken): on the client it reflects localStorage on first paint.
+    if (!hasToken) return { status: "anonymous" };
     if (user === undefined) return { status: "loading" };
     if (user === null) return { status: "anonymous" };
     return { status: "authenticated", user };

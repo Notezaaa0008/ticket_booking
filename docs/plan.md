@@ -47,7 +47,7 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 | 1 | Foundation | ☐ | | |
 | 2 | Catalog | ☐ | | |
 | 3 | Auth + Booking | ☐ | | |
-| 4 | Payment + Ticket | ☐ | | |
+| 4 | Payment + Ticket | ☑ PHASE VERIFIED (PASS 100%) | feat(phase4) | 2026-10-03 |
 | 5 | Admin + Refund | ☐ | | |
 | 6 | Hardening + Delivery | ☐ | | |
 
@@ -176,48 +176,50 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 
 **ต้องให้คนอนุมัติ:** state transition ของ payment/booking, ขั้นตอน webhook, กฎกรณีจ่ายหลังหมดเวลา, กรณียอดไม่ตรง, รูปแบบรหัสตั๋ว, dependency สร้าง QR (Q1-Q5 ใน Task Prompt)
 
+> **สถานะ Phase 4:** **PHASE VERIFIED (PASS 100%)** — 2026-10-03 (`/verify-phase` + human sign-off P4-50–53, P4-62; ดู `docs/ai-log.md`)
+
 ### Checklist: การสร้างการชำระเงิน
-- [ ] **P4-00** ชุดตรวจมาตรฐานผ่าน
-- [ ] **P4-01** สร้าง payment ได้เฉพาะ booking ของตัวเองที่ PENDING ยังไม่หมดเวลา และ items ยัง active, ยอดมาจาก DB (ไม่รับยอดจาก client)
-- [ ] **P4-02** ต้องมี `Idempotency-Key`; key เดิมได้ payment เดิม (ไม่สร้างแถวใหม่ ไม่เขียน event ซ้ำ)
-- [ ] **P4-03** มี payment PENDING ซ้อนใน booking เดียวไม่ได้ (ถูกกันด้วย `uq_payments_one_pending_per_booking`) ได้ 409
-- [ ] **P4-04** สร้างไม่สำเร็จ → มี `PAYMENT_CREATE_FAILED` / FAILURE พร้อม reason (`BOOKING_NOT_PAYABLE` หรือ `BOOKING_EXPIRED`); สร้างสำเร็จ → `PAYMENT_CREATED` / SUCCESS
-- [ ] **P4-05** `GET /payments/:id` คืน status, amount, `failure_code`, `failure_message`; ของคนอื่นได้ 404
+- [x] **P4-00** ชุดตรวจมาตรฐานผ่าน — VERIFIED
+- [x] **P4-01** สร้าง payment ได้เฉพาะ booking ของตัวเองที่ PENDING ยังไม่หมดเวลา และ items ยัง active, ยอดมาจาก DB (ไม่รับยอดจาก client) — VERIFIED
+- [x] **P4-02** ต้องมี `Idempotency-Key`; key เดิมได้ payment เดิม (ไม่สร้างแถวใหม่ ไม่เขียน event ซ้ำ) — VERIFIED
+- [x] **P4-03** มี payment PENDING ซ้อนใน booking เดียวไม่ได้ (ถูกกันด้วย `uq_payments_one_pending_per_booking`) ได้ 409 — VERIFIED
+- [x] **P4-04** สร้างไม่สำเร็จ → มี `PAYMENT_CREATE_FAILED` / FAILURE พร้อม reason (`BOOKING_NOT_PAYABLE` หรือ `BOOKING_EXPIRED`); สร้างสำเร็จ → `PAYMENT_CREATED` / SUCCESS — VERIFIED
+- [x] **P4-05** `GET /payments/:id` คืน status, amount, `failure_code`, `failure_message`; ของคนอื่นได้ 404 — VERIFIED
 
 ### Checklist: Webhook และการยืนยันชำระเงิน
-- [ ] **P4-10** mock gateway เรียก webhook จริงผ่าน HTTP (ผ่านโค้ดตรวจลายเซ็นเดียวกัน ไม่ใช่ฟังก์ชันลัด) และปิดได้ด้วย `MOCK_GATEWAY_ENABLED=false` (ได้ 404)
-- [ ] **P4-11** ลายเซ็นผิด/ไม่มี/body ถูกแก้ → 401, มี `WEBHOOK_REJECTED` (`INVALID_SIGNATURE`, `signature_valid=false`), **ไม่มีสถานะใดเปลี่ยน**
-- [ ] **P4-12** payload เสีย → 400 และมี `WEBHOOK_REJECTED` (`MALFORMED_PAYLOAD`)
-- [ ] **P4-13** **จ่ายสำเร็จ:** booking = PAID, payment = SUCCEEDED, ตั๋วเท่าจำนวน items, event เรียง `WEBHOOK_RECEIVED` → `PAYMENT_SUCCEEDED` → `BOOKING_PAID` → `TICKETS_ISSUED` (ทั้งหมดอยู่ใน transaction เดียว), ที่นั่งแสดงเป็น sold
-- [ ] **P4-14** **จ่ายล้มเหลว:** payment = FAILED พร้อม `failure_code`/`failure_message`, booking ยัง PENDING, มี `PAYMENT_FAILED` และผู้ใช้สร้าง payment ใหม่แล้วจ่ายสำเร็จได้
-- [ ] **P4-15** **webhook ซ้ำ** (ส่ง 2 ครั้ง และส่งพร้อมกัน 10 ครั้ง): ตั๋วชุดเดียว, `PAYMENT_SUCCEEDED` 1 แถว, ที่เหลือเป็น `PAYMENT_DUPLICATE_IGNORED` / IGNORED และตอบ 200
-- [ ] **P4-16** **ยอดไม่ตรง:** payment = NEEDS_REFUND (`AMOUNT_MISMATCH`), ไม่ออกตั๋ว, มี `PAYMENT_AMOUNT_MISMATCH`
-- [ ] **P4-17** **จ่ายหลังหมดเวลา/ที่นั่งหาย:** payment = NEEDS_REFUND (`BOOKING_EXPIRED` หรือ `SEAT_LOST`), ไม่ออกตั๋ว, มี `PAYMENT_AFTER_EXPIRY`, และ booking ของผู้ใช้อื่นที่ได้ที่นั่งไปไม่ถูกกระทบ
-- [ ] **P4-18** webhook อ้าง payment ที่ไม่มี → 404 พร้อม event (`UNKNOWN_PAYMENT`)
-- [ ] **P4-19** **Race:** job หมดเวลากับ webhook ทำงานพร้อมกัน ต้องไม่เกิดทั้ง EXPIRED และ PAID (job และ cancel ล็อก booking `FOR UPDATE` และตรวจสถานะซ้ำ)
-- [ ] **P4-20** ตอบ 200 เมื่อประมวลผลหรือละเว้น, 500 เมื่อเกิด error ภายใน (ไม่เปิดเผยรายละเอียดภายในใน body)
+- [x] **P4-10** mock gateway เรียก webhook จริงผ่าน HTTP (ผ่านโค้ดตรวจลายเซ็นเดียวกัน ไม่ใช่ฟังก์ชันลัด) และปิดได้ด้วย `MOCK_GATEWAY_ENABLED=false` (ได้ 404) — VERIFIED
+- [x] **P4-11** ลายเซ็นผิด/ไม่มี/body ถูกแก้ → 401, มี `WEBHOOK_REJECTED` (`INVALID_SIGNATURE`, `signature_valid=false`), **ไม่มีสถานะใดเปลี่ยน** — VERIFIED
+- [x] **P4-12** payload เสีย → 400 และมี `WEBHOOK_REJECTED` (`MALFORMED_PAYLOAD`) — VERIFIED
+- [x] **P4-13** **จ่ายสำเร็จ:** booking = PAID, payment = SUCCEEDED, ตั๋วเท่าจำนวน items, event เรียง `WEBHOOK_RECEIVED` → `PAYMENT_SUCCEEDED` → `BOOKING_PAID` → `TICKETS_ISSUED`, ที่นั่งแสดงเป็น sold — VERIFIED
+- [x] **P4-14** **จ่ายล้มเหลว:** payment = FAILED พร้อม `failure_code`/`failure_message`, booking ยัง PENDING, มี `PAYMENT_FAILED` และผู้ใช้สร้าง payment ใหม่แล้วจ่ายสำเร็จได้ — VERIFIED
+- [x] **P4-15** **webhook ซ้ำ** (ส่ง 2 ครั้ง และส่งพร้อมกัน 10 ครั้ง): ตั๋วชุดเดียว, `PAYMENT_SUCCEEDED` 1 แถว, ที่เหลือเป็น `PAYMENT_DUPLICATE_IGNORED` / IGNORED และตอบ 200 — VERIFIED
+- [x] **P4-16** **ยอดไม่ตรง:** payment = NEEDS_REFUND (`AMOUNT_MISMATCH`), ไม่ออกตั๋ว, มี `PAYMENT_AMOUNT_MISMATCH` — VERIFIED
+- [x] **P4-17** **จ่ายหลังหมดเวลา/ที่นั่งหาย:** payment = NEEDS_REFUND (`BOOKING_EXPIRED` หรือ `SEAT_LOST`), ไม่ออกตั๋ว, มี `PAYMENT_AFTER_EXPIRY`, และ booking ของผู้ใช้อื่นที่ได้ที่นั่งไปไม่ถูกกระทบ — VERIFIED
+- [x] **P4-18** webhook อ้าง payment ที่ไม่มี → 404 พร้อม event (`UNKNOWN_PAYMENT`) — VERIFIED
+- [x] **P4-19** **Race:** job หมดเวลากับ webhook ทำงานพร้อมกัน ต้องไม่เกิดทั้ง EXPIRED และ PAID (job และ cancel ล็อก booking `FOR UPDATE` และตรวจสถานะซ้ำ) — VERIFIED
+- [x] **P4-20** ตอบ 200 เมื่อประมวลผลหรือละเว้น, 500 เมื่อเกิด error ภายใน (ไม่เปิดเผยรายละเอียดภายในใน body) — VERIFIED
 
 ### Checklist: ตั๋ว
-- [ ] **P4-30** รหัสตั๋วไม่เรียงลำดับ มีความสุ่มอย่างน้อย 128 bit และไม่ซ้ำ
-- [ ] **P4-31** `GET /tickets` และ `GET /tickets/:code` เห็นเฉพาะของตัวเอง (ของคนอื่น 404)
-- [ ] **P4-32** `GET /bookings/:id` แสดงสถานะ payment ล่าสุดและตั๋วเมื่อ PAID
+- [x] **P4-30** รหัสตั๋วไม่เรียงลำดับ มีความสุ่มอย่างน้อย 128 bit และไม่ซ้ำ — VERIFIED
+- [x] **P4-31** `GET /tickets` และ `GET /tickets/:code` เห็นเฉพาะของตัวเอง (ของคนอื่น 404) — VERIFIED
+- [x] **P4-32** `GET /bookings/:id` แสดงสถานะ payment ล่าสุดและตั๋วเมื่อ PAID — VERIFIED
 
 ### Checklist: Log และการรองรับคืนเงิน
-- [ ] **P4-40** ทุก outcome path ของ Phase นี้มี test ที่ตรวจ `event_type`, `outcome`, `reason_code` และสถานะที่เกิดขึ้น
-- [ ] **P4-41** ทุก payment ที่เป็น `NEEDS_REFUND` ตามรอยได้: query `payment_events` ของ payment นั้นเห็นสาเหตุและ `raw_payload` ของ webhook
-- [ ] **P4-42** event ไม่มีข้อมูลลับ (ไม่มีลายเซ็นจริง ไม่มี token) และ UPDATE/DELETE บนตาราง event ยังถูกปฏิเสธ
-- [ ] **P4-43** ผู้ตรวจ query ได้เอง: `SELECT event_type, outcome, reason_code FROM payment_events ORDER BY created_at;` และ `SELECT id, status, failure_code FROM payments WHERE status='NEEDS_REFUND';`
+- [x] **P4-40** ทุก outcome path ของ Phase นี้มี test ที่ตรวจ `event_type`, `outcome`, `reason_code` และสถานะที่เกิดขึ้น — VERIFIED
+- [x] **P4-41** ทุก payment ที่เป็น `NEEDS_REFUND` ตามรอยได้: query `payment_events` ของ payment นั้นเห็นสาเหตุและ `raw_payload` ของ webhook — VERIFIED
+- [x] **P4-42** event ไม่มีข้อมูลลับ (ไม่มีลายเซ็นจริง ไม่มี token) และ UPDATE/DELETE บนตาราง event ยังถูกปฏิเสธ — VERIFIED
+- [x] **P4-43** ผู้ตรวจ query ได้เอง: `SELECT event_type, outcome, reason_code FROM payment_events ORDER BY created_at;` และ `SELECT id, status, failure_code FROM payments WHERE status='NEEDS_REFUND';` — VERIFIED
 
 ### Checklist: Frontend
-- [ ] **P4-50** เดิน flow ครบในเบราว์เซอร์: ค้นหา → เลือกที่นั่ง → จอง → จ่ายสำเร็จ → เห็นตั๋วพร้อม QR
-- [ ] **P4-51** flow ล้มเหลว: กด "จำลองล้มเหลว" → เห็นเหตุผล → ลองจ่ายใหม่ → สำเร็จ
-- [ ] **P4-52** หน้าผลลัพธ์แยกสถานะชัดเจน: กำลังประมวลผล, สำเร็จ, ล้มเหลว (พร้อม `failure_message` และปุ่มลองใหม่), NEEDS_REFUND (แจ้งว่ารับเงินแล้วแต่ออกตั๋วไม่ได้ จะคืนเงิน และแสดงเลข payment)
-- [ ] **P4-53** กดจ่ายซ้ำสองครั้งติดกันไม่สร้าง payment ซ้ำ (ใช้ Idempotency-Key เดิม)
+- [x] **P4-50** เดิน flow ครบในเบราว์เซอร์: ค้นหา → เลือกที่นั่ง → จอง → จ่ายสำเร็จ → เห็นตั๋วพร้อม QR — VERIFIED (human browser)
+- [x] **P4-51** flow ล้มเหลว: กด "จำลองล้มเหลว" → เห็นเหตุผล → ลองจ่ายใหม่ → สำเร็จ — VERIFIED (human browser)
+- [x] **P4-52** หน้าผลลัพธ์แยกสถานะชัดเจน: กำลังประมวลผล, สำเร็จ, ล้มเหลว (พร้อม `failure_message` และปุ่มลองใหม่), NEEDS_REFUND (แจ้งว่ารับเงินแล้วแต่ออกตั๋วไม่ได้ จะคืนเงิน และแสดงเลข payment) — VERIFIED (human browser)
+- [x] **P4-53** กดจ่ายซ้ำสองครั้งติดกันไม่สร้าง payment ซ้ำ (ใช้ Idempotency-Key เดิม) — VERIFIED (human browser + `TestPayment_CreateRules`)
 
 ### Checklist: อื่น ๆ
-- [ ] **P4-60** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High
-- [ ] **P4-61** `docs/api.md` อัปเดตครบ (headers, error codes, event ที่เขียนต่อ path)
-- [ ] **P4-62** 👤 คนอนุมัติ payment flow, webhook และตาราง state transition ก่อน และอ่านโค้ด transaction ยืนยันชำระเงินทุกบรรทัด
+- [x] **P4-60** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High — VERIFIED
+- [x] **P4-61** `docs/api.md` อัปเดตครบ (headers, error codes, event ที่เขียนต่อ path) — VERIFIED
+- [x] **P4-62** 👤 คนอนุมัติ payment flow, webhook และตาราง state transition ก่อน และอ่านโค้ด transaction ยืนยันชำระเงินทุกบรรทัด — VERIFIED (human sign-off 2026-10-03)
 
 ---
 

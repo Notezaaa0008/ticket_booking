@@ -80,6 +80,19 @@ func main() {
 		Limiter:      limiter,
 		BookingLimit: 10,
 	})
+	paymentRepo := repository.NewPaymentRepository(gdb)
+	paymentSvc := service.NewPaymentService(paymentRepo, repository.NewBookingRepository(gdb), bookingSvc, cfg.WebhookSecret)
+	paymentDeps := handler.PaymentDeps{
+		Payment: handler.NewPaymentHandler(paymentSvc),
+		Ticket:  handler.NewTicketHandler(paymentSvc),
+		Verify:  authSvc.VerifyToken,
+	}
+	if cfg.MockGatewayEnabled {
+		webhookURL := "http://127.0.0.1:" + cfg.Port + "/api/v1/payments/webhook"
+		paymentDeps.MockGateway = handler.NewMockGatewayHandler(service.NewMockGateway(paymentRepo, cfg.WebhookSecret, webhookURL))
+		log.Printf("mock gateway enabled (webhook target %s)", webhookURL)
+	}
+	handler.RegisterPaymentRoutes(v1, paymentDeps)
 
 	jobCtx, stopJob := context.WithCancel(context.Background())
 	jobDone := make(chan struct{})

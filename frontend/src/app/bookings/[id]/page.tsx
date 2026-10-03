@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ApiError, cancelBooking, getBooking, type Booking } from "@/lib/api";
+import { ApiError, cancelBooking, createPayment, getBooking, type Booking } from "@/lib/api";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { formatBaht, formatDateTime } from "@/lib/format";
 
@@ -32,7 +32,7 @@ function StatusPanel({ booking, remainingMs }: { booking: Booking; remainingMs: 
           <p className="text-2xl font-bold" aria-live="polite">
             {formatCountdown(remainingMs)}
           </p>
-          <p className="text-sm text-yellow-800">Payment is not available yet; the hold ends when the timer reaches zero.</p>
+          <p className="text-sm text-yellow-800">Pay before the timer reaches zero, or the seats are released.</p>
         </div>
       ) : (
         <div className="rounded border border-yellow-400 bg-yellow-50 p-4">
@@ -66,7 +66,12 @@ function StatusPanel({ booking, remainingMs }: { booking: Booking; remainingMs: 
       return (
         <div className="rounded border border-green-400 bg-green-50 p-4">
           <p className="font-medium text-green-800">Booking paid</p>
-          <p className="text-sm text-green-700">Your payment was received.</p>
+          <p className="text-sm text-green-700">
+            Your payment was received and {booking.tickets?.length ?? 0} ticket(s) were issued.{" "}
+            <Link href="/tickets" className="underline">
+              View my tickets
+            </Link>
+          </p>
         </div>
       );
     case "REFUNDED":
@@ -91,6 +96,11 @@ export default function BookingDetailPage() {
   const [now, setNow] = useState(() => Date.now());
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  // One Idempotency-Key per payment attempt: a double click reuses it; a new one only after a FAILED payment.
+  const payKey = useRef<string | null>(null);
+  const router = useRouter();
 
   const status = state.kind === "ok" ? state.booking.status : null;
 
@@ -151,6 +161,33 @@ export default function BookingDetailPage() {
     }
   };
 
+  const onPay = async () => {
+    setPaying(true);
+    setPayError(null);
+    try {
+      if (!payKey.current) payKey.current = crypto.randomUUID();
+      let payment = await createPayment(id, payKey.current);
+      if (payment.status === "FAILED") {
+        // This key belongs to a failed attempt: start a new attempt with a fresh key.
+        payKey.current = crypto.randomUUID();
+        payment = await createPayment(id, payKey.current);
+      }
+      router.push(payment.pay_url);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "BOOKING_EXPIRED") {
+        setPayError("The booking has expired, so it can no longer be paid.");
+      } else if (e instanceof ApiError && e.code === "BOOKING_NOT_PAYABLE") {
+        setPayError(`This booking cannot be paid right now: ${e.message}.`);
+      } else if (e instanceof ApiError && e.code === "BOOKING_NOT_FOUND") {
+        setPayError("This booking was not found.");
+      } else {
+        setPayError(e instanceof Error ? e.message : "Could not start the payment.");
+      }
+      setTick((n) => n + 1);
+      setPaying(false);
+    }
+  };
+
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <Link href="/bookings" className="text-sm text-gray-600 underline">
@@ -197,6 +234,35 @@ export default function BookingDetailPage() {
               {cancelError}
             </p>
           )}
+          {state.booking.payment?.status === "NEEDS_REFUND" && (
+            <div role="alert" className="rounded border border-orange-400 bg-orange-50 p-4 text-sm text-orange-900">
+              <p className="font-medium">Payment received but tickets could not be issued. We will refund you.</p>
+              <p>{state.booking.payment.failure_message}</p>
+              <p>Payment id: {state.booking.payment.id}</p>
+            </div>
+          )}
+          {payError && (
+            <p role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+              {payError}
+            </p>
+          )}
+          {state.booking.status === "PENDING" && state.booking.payment?.status === "PENDING" && (
+            <Link href={state.booking.payment.pay_url} className="inline-block rounded bg-black px-4 py-2 text-sm text-white">
+              Continue payment
+            </Link>
+          )}
+          {state.booking.status === "PENDING" &&
+            state.booking.payment?.status !== "PENDING" &&
+            new Date(state.booking.expires_at).getTime() > now && (
+              <button
+                type="button"
+                disabled={paying}
+                onClick={onPay}
+                className="mr-2 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+              >
+                {paying ? "Starting payment…" : state.booking.payment?.status === "FAILED" ? "Retry payment" : "Pay"}
+              </button>
+            )}
           {state.booking.status === "PENDING" && (
             <button
               type="button"

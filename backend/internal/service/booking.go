@@ -91,6 +91,8 @@ type BookingView struct {
 	SecondsRemaining int64             `json:"seconds_remaining"`
 	CreatedAt        time.Time         `json:"created_at"`
 	Items            []BookingItemView `json:"items"`
+	Payment          *PaymentView      `json:"payment,omitempty"` // latest payment (GET /bookings/:id only)
+	Tickets          []TicketView      `json:"tickets,omitempty"` // only when PAID
 }
 
 // createTrace collects what the failure audit event needs.
@@ -397,7 +399,23 @@ func (s *BookingService) Get(ctx context.Context, userID, id string) (*BookingVi
 	if err != nil {
 		return nil, err
 	}
-	return &views[0], nil
+	v := &views[0]
+	payments := repository.NewPaymentRepository(s.repo.DB())
+	p, err := payments.LatestForBooking(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	if p != nil {
+		v.Payment = paymentView(p)
+	}
+	if v.Status == string(domain.BookingPaid) {
+		rows, err := payments.TicketsForBooking(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+		v.Tickets = ticketViews(rows)
+	}
+	return v, nil
 }
 
 func (s *BookingService) List(ctx context.Context, userID string) ([]BookingView, error) {

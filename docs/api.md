@@ -23,21 +23,29 @@ Protected routes require `Authorization: Bearer <jwt>` (HS256, 24h, claims: user
 { "error": { "code": "SEAT_UNAVAILABLE", "message": "...", "seat_ids": ["uuid", "..."] } }
 ```
 
-### Common HTTP / codes (Phase 3)
+### Common HTTP / codes
 
 | HTTP | code | Meaning |
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | Invalid input |
+| 400 | `IDEMPOTENCY_KEY_REQUIRED` | Missing `Idempotency-Key` on payment create |
+| 400 | `MALFORMED_PAYLOAD` | Webhook JSON invalid |
 | 401 | `UNAUTHENTICATED` | Missing or invalid token |
 | 401 | `INVALID_CREDENTIALS` | Wrong email or password (generic message) |
+| 401 | `INVALID_SIGNATURE` | Webhook HMAC invalid or missing |
 | 403 | `FORBIDDEN` | Admin-only route |
 | 404 | `NOT_FOUND` / `BOOKING_NOT_FOUND` | Resource hidden or missing |
+| 404 | `UNKNOWN_PAYMENT` | Webhook references unknown payment id |
 | 409 | `EMAIL_TAKEN` | Register duplicate email |
 | 409 | `SEAT_UNAVAILABLE` | Seat held or sold |
 | 409 | `BOOKING_NOT_PENDING` | Cancel on non-pending booking |
+| 409 | `BOOKING_NOT_PAYABLE` | Payment create rejected (not pending, another pending payment, etc.) |
+| 409 | `BOOKING_EXPIRED` | Booking hold expired |
 | 422 | `TOO_MANY_SEATS` | More than 6 seats |
 | 422 | `SHOWTIME_NOT_ON_SALE` | Showtime closed or in the past |
+| 422 | `AMOUNT_MISMATCH` | Webhook amount ≠ payment row (stored on payment as `failure_code`) |
 | 429 | `RATE_LIMITED` | Login (5/min per IP+email) or booking (10/min per user) |
+| 500 | `INTERNAL_ERROR` | Server error (generic message; webhook processing failure after receive) |
 
 One pending booking per user per showtime returns **409** with code `VALIDATION_FAILED` and message `you already have a pending booking for this showtime`.
 
@@ -103,6 +111,7 @@ Client `price_satang` / `total_satang` are **ignored**; prices come from `seats`
 
 ### GET /bookings/{id}
 200: booking with `items`, `total_satang`, `expires_at`, `seconds_remaining` (if PENDING), `status_reason` (if EXPIRED → e.g. `HOLD_EXPIRED`, if CANCELLED → `USER_CANCELLED`).  
+When **PAID**, also includes latest `payment` (summary) and `tickets[]` issued for this booking.  
 404: `BOOKING_NOT_FOUND` for other users or unknown id.
 
 ### DELETE /bookings/{id}
@@ -144,11 +153,126 @@ Lazy expiry on a new booking that needs seats blocked by stale PENDING rows uses
       "zone": "front",
       "price_satang": 150000
     }
-  ]
+  ],
+  "payment": { "id": "uuid", "status": "SUCCEEDED", "amount_satang": 150000, "failure_code": "", "failure_message": "", "paid_at": "...", "pay_url": "/pay/uuid" },
+  "tickets": []
 }
 ```
 
 ---
 
+## Payments & tickets (Phase 4)
+
+Amounts are always computed on the server from `booking_items.price_satang`. Clients never send payment totals.
+
+### POST /bookings/{id}/payments
+Auth required (booking owner).  
+**Header:** `Idempotency-Key: <string>` (required, max 200 chars). Same key on the same booking returns the existing payment (**200**); reusing a key for a different booking → **409** `VALIDATION_FAILED`.
+
+**Body:** none.
+
+**201** (new payment) / **200** (idempotent replay):
+```json
+{
+  "id": "uuid",
+  "booking_id": "uuid",
+  "status": "PENDING",
+  "amount_satang": 30000,
+  "failure_code": "",
+  "failure_message": "",
+  "paid_at": null,
+  "created_at": "2026-10-03T12:00:00Z",
+  "pay_url": "/pay/{id}"
+}
+```
+
+**409:** `BOOKING_NOT_PAYABLE` (not pending, seats lost, or another `PENDING` payment exists), `BOOKING_EXPIRED`.  
+**404:** `BOOKING_NOT_FOUND` (not owner).  
+**400:** `IDEMPOTENCY_KEY_REQUIRED`.
+
+**Audit (success, same transaction):** `PAYMENT_CREATED` / SUCCESS.  
+**Audit (failure, after rollback):** `PAYMENT_CREATE_FAILED` / FAILURE — `BOOKING_NOT_PAYABLE`, `BOOKING_EXPIRED`, `VALIDATION_FAILED`, etc.
+
+### GET /payments/{id}
+Auth required (owner via booking).  
+**200:** same shape as create response; includes `failure_code` / `failure_message` when failed or needs refund.  
+**404:** `NOT_FOUND` for other users.
+
+Payment `status`: `PENDING` | `SUCCEEDED` | `FAILED` | `NEEDS_REFUND` | `REFUNDED`.
+
+---
+
+### POST /payments/webhook
+Gateway callback (**no JWT**). Verifies **HMAC-SHA256** of the **raw** request body.
+
+**Header:** `X-Signature: <hex>` — HMAC-SHA256 of the body using `PAYMENT_WEBHOOK_SECRET`.
+
+**Body (JSON):**
+```json
+{
+  "event_id": "uuid",
+  "payment_id": "uuid",
+  "status": "succeeded",
+  "amount_satang": 30000,
+  "provider_ref": "provider-charge-id",
+  "failure_code": "GATEWAY_DECLINED"
+}
+```
+- `status`: `succeeded` | `failed` (on `failed`, optional `failure_code`, e.g. `GATEWAY_DECLINED`).
+- `amount_satang` required when `status` is `succeeded`; must match the payment row.
+
+**200:** `{ "result": "processed" | "ignored", "payment_status": "..." }`  
+**401:** `INVALID_SIGNATURE` — no state change; audit `WEBHOOK_REJECTED` / FAILURE.  
+**400:** `MALFORMED_PAYLOAD`.  
+**404:** `UNKNOWN_PAYMENT`.  
+**500:** `INTERNAL_ERROR` (generic body) if processing fails after `WEBHOOK_RECEIVED`.
+
+**Audit:** always `WEBHOOK_RECEIVED` / SUCCESS (valid signature + JSON) before processing. Then one of:  
+`PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, `PAYMENT_AMOUNT_MISMATCH`, `PAYMENT_AFTER_EXPIRY`, `PAYMENT_DUPLICATE_IGNORED` (with booking events `BOOKING_PAID`, `TICKETS_ISSUED` on success).  
+Duplicate terminal webhooks → `PAYMENT_DUPLICATE_IGNORED` / IGNORED, **200**, no further state change.
+
+> Alias note: there is no `/webhooks/payment` route; providers must POST to **`/payments/webhook`**.
+
+---
+
+### POST /mock-gateway/{payment_id}/pay
+Dev only when `MOCK_GATEWAY_ENABLED=true`; otherwise **404**. **No auth.**  
+Builds a signed webhook payload from DB amount and POSTs to `/payments/webhook` over HTTP (same path as production).
+
+**Body:** `{ "result": "success" | "fail" }`
+
+**200:** `{ "webhook_status": 200, "webhook_body": { "result": "processed", "payment_status": "..." } }`  
+**404:** unknown payment.
+
+---
+
+### GET /tickets
+Auth required.  
+**200:** `{ "items": [ ticket, ... ] }` (owner only, newest showtimes first).
+
+### GET /tickets/{code}
+Auth required.  
+**200:** single ticket (same fields as list item).  
+**404:** `NOT_FOUND` if code unknown or not owned by caller.
+
+**Ticket object:**
+```json
+{
+  "code": "base64url-22-chars",
+  "status": "VALID",
+  "booking_id": "uuid",
+  "event_title": "Bangkok Jazz Night",
+  "venue": "Lumpini Hall",
+  "starts_at": "2026-10-11T12:00:00+07:00",
+  "seat_label": "A1",
+  "zone": "standard",
+  "issued_at": "2026-10-03T12:00:00Z"
+}
+```
+
+After successful payment, seats show as **`sold`** on `GET /showtimes/{id}/seats` (booking `PAID`).
+
+---
+
 ## Out of scope in this document
-Payment, tickets, admin, refunds (Phase 4+).
+Admin, refund processing (Phase 5+).

@@ -203,6 +203,10 @@ export type Booking = {
   seconds_remaining: number;
   created_at: string;
   items: BookingItem[];
+  /** Latest payment; only on GET /bookings/:id. */
+  payment?: Payment;
+  /** Only when PAID, only on GET /bookings/:id. */
+  tickets?: Ticket[];
 };
 
 /** Sends only ids: prices and totals are always computed by the server. */
@@ -223,4 +227,60 @@ export function getBooking(id: string): Promise<Booking> {
 
 export function cancelBooking(id: string): Promise<Booking> {
   return apiFetch<Booking>(`/api/v1/bookings/${id}`, { method: "DELETE" });
+}
+
+// ---------- payments and tickets ----------
+
+export type PaymentStatus = "PENDING" | "SUCCEEDED" | "FAILED" | "NEEDS_REFUND" | "REFUNDED";
+
+export type Payment = {
+  id: string;
+  booking_id: string;
+  status: PaymentStatus;
+  amount_satang: number;
+  failure_code?: string;
+  failure_message?: string;
+  paid_at: string | null;
+  created_at: string;
+  pay_url: string;
+};
+
+/** The same idempotency key returns the same payment, so a double click never creates two. */
+export function createPayment(bookingId: string, idempotencyKey: string): Promise<Payment> {
+  return apiFetch<Payment>(`/api/v1/bookings/${bookingId}/payments`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}
+
+export function getPayment(id: string): Promise<Payment> {
+  return apiFetch<Payment>(`/api/v1/payments/${id}`);
+}
+
+export type MockPayResult = { webhook_status: number };
+
+/** Dev-only mock gateway: the backend signs and delivers the webhook itself. */
+export function mockPay(paymentId: string, result: "success" | "fail"): Promise<MockPayResult> {
+  return apiFetch<MockPayResult>(`/api/v1/mock-gateway/${paymentId}/pay`, {
+    method: "POST",
+    body: JSON.stringify({ result }),
+  });
+}
+
+export type TicketStatus = "VALID" | "USED" | "VOID";
+
+export type Ticket = {
+  code: string;
+  status: TicketStatus;
+  booking_id: string;
+  event_title: string;
+  venue: string;
+  starts_at: string;
+  seat_label: string;
+  zone: string;
+  issued_at: string;
+};
+
+export async function listTickets(): Promise<Ticket[]> {
+  return (await apiFetch<{ items: Ticket[] }>("/api/v1/tickets")).items;
 }

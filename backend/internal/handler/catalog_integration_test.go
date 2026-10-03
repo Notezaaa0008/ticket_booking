@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	// อ่านค่า TEST_DATABASE_URL หากไม่มีให้ fallback ไปใช้ postgres:postgres
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = "postgres://postgres:postgres@localhost:5432/ticket_booking_test?sslmode=disable"
+		url = "postgres://ticket:ticket@localhost:5432/ticket_booking_test?sslmode=disable"
 	}
 
 	if err := db.Migrate(url, "up"); err != nil {

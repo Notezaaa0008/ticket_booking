@@ -28,3 +28,24 @@ func RegisterAuthBookingRoutes(v1 *gin.RouterGroup, d AuthBookingDeps) {
 	authed.GET("/bookings/:id", d.Booking.Get)
 	authed.DELETE("/bookings/:id", d.Booking.Cancel)
 }
+
+// PaymentDeps wires the payment, webhook, ticket and (optional) mock gateway routes.
+type PaymentDeps struct {
+	Payment     *PaymentHandler
+	Ticket      *TicketHandler
+	MockGateway *MockGatewayHandler // nil when MOCK_GATEWAY_ENABLED is false: the route then 404s
+	Verify      middleware.TokenVerifier
+}
+
+func RegisterPaymentRoutes(v1 *gin.RouterGroup, d PaymentDeps) {
+	v1.POST("/payments/webhook", d.Payment.Webhook)
+	if d.MockGateway != nil {
+		v1.POST("/mock-gateway/:payment_id/pay", d.MockGateway.Pay)
+	}
+
+	authed := v1.Group("", middleware.Auth(d.Verify))
+	authed.POST("/bookings/:id/payments", d.Payment.Create)
+	authed.GET("/payments/:id", d.Payment.Get)
+	authed.GET("/tickets", d.Ticket.List)
+	authed.GET("/tickets/:code", d.Ticket.Get)
+}

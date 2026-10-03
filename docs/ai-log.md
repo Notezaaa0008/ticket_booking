@@ -92,3 +92,51 @@ Evidence types used: **`./scripts/check.sh`** (with default test DB URL), **curl
 **Follow-up fixes included in final verify:** audit test constraint `defer` cleanup; `integrationDBMu` on catalog TRUNCATE; `scripts/check.sh` uses `go test -p 1`; root `package.json` for Playwright.
 
 **Tag:** Commit and `git tag phase-3-done`; human updates progress table in `docs/plan.md`.
+
+---
+
+## Phase 4 — Payment + Ticket (final sign-off)
+
+### Human sign-offs
+
+| ID | Status | Note |
+|----|--------|------|
+| **P4-50–P4-53** | **PASS** | Human browser verification (2026-10-03): full pay flow on `npm run dev` — search → seat map → book → `/pay/[paymentId]` mock success/fail → `/tickets` with QR; distinct payment states on pay page; double Pay reuses Idempotency-Key (`bookings/[id]/page.tsx` `payKey` ref). |
+| **P4-62** | **PASS** | Human sign-off (2026-10-03): Approved payment/booking state transitions, webhook HMAC flow, and `PaymentService.applyWebhook` transaction (FOR UPDATE on payment + booking, amount from DB, NEEDS_REFUND paths). |
+
+### P4-60 — `/review-booking-safety` (Phase 4 scope)
+
+**Verdict: no High-severity violations.**
+
+| Rule | Result | Evidence |
+|------|--------|----------|
+| Partial unique index on active seats | OK (Phase 1) | Migration `uq_booking_items_active_seat`; ticket insert unique on `booking_item_id` |
+| Redis holds + DB transaction on book | OK (Phase 3) | Unchanged; payment success releases holds after commit (`payment.go` L374–380) |
+| Payment confirmation `FOR UPDATE` + status check | OK | `LockPayment` (`repository/payment.go` L51–53), `bookings.Lock` (`booking.go` L114–115), terminal status guard (`payment.go` L392–396) |
+| Webhook HMAC before state change | OK | `validSignature` + `hmac.Equal` (`payment.go` L272–279, L305–311); invalid → no `WEBHOOK_RECEIVED` on payment row / no tx |
+| Amount from server/DB only | OK | `InsertPayment` uses `ItemStats.Total` (`payment.go` L183–183); webhook compares `*in.AmountSatang != p.AmountSatang` (`L415–416`) |
+| Idempotent webhook / one ticket set | OK | `TestPayment_DuplicateWebhookSequential`, `TestPayment_DuplicateWebhookConcurrent` |
+| Pay after expiry / seat lost → NEEDS_REFUND | OK | `TestPayment_AfterExpirySeatRebookedNeedsRefund`, `TestPayment_AmountMismatchNeedsRefund` |
+| Audit: no signature/token in events | OK | `TestPayment_InvalidSignatureRejected` (signature not in raw_payload); `signature_valid` boolean only |
+| Append-only event tables | OK | `TestPayment_EventTablesAppendOnly` |
+
+**Medium (accepted for MVP):** mock gateway routes unauthenticated when `MOCK_GATEWAY_ENABLED=true` (dev-only; disable in production). **`WEBHOOK_RECEIVED`** commits before the processing transaction (`payment.go` L335–338); success path events `PAYMENT_SUCCEEDED` → `BOOKING_PAID` → `TICKETS_ISSUED` share one transaction.
+
+**Low:** Refund idempotency rules (item 13) — Phase 5.
+
+### Final verification status (Phase 4)
+
+**Verdict:** **PHASE VERIFIED (PASS 100%)** — 2026-10-03.
+
+| Area | Result | Evidence |
+|------|--------|----------|
+| P4-00 | Pass | `gofmt -l .` clean; `go vet ./...`; `go test ./... -race -count=1`; frontend lint/tsc/build |
+| P4-01–P4-20 | Pass | `payment_integration_test.go` (`TestPayment_*`); curl mock-gateway + webhook |
+| P4-30–P4-32 | Pass | `newTicketCode` 128-bit; ticket ownership tests; booking GET embeds payment/tickets |
+| P4-40–P4-43 | Pass | Outcome tests + `assertP413SuccessEventOrder`; NEEDS_REFUND raw_payload; append-only |
+| P4-50–P4-53 | Pass | Human browser (see above) |
+| P4-60 | Pass | Safety review table above — **no High** |
+| P4-61 | Pass | `docs/api.md` Phase 4 section |
+| P4-62 | Pass | Human sign-off (see above) |
+
+**Suggested tag:** `git tag phase-4-done` after commit `feat(phase4): complete payment integration, webhooks, and ticket issuance`.

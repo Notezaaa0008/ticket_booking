@@ -19,6 +19,8 @@ import (
 	"ticketbooking/internal/db"
 	"ticketbooking/internal/handler"
 	"ticketbooking/internal/middleware"
+	"ticketbooking/internal/repository"
+	"ticketbooking/internal/service"
 )
 
 func main() {
@@ -60,7 +62,13 @@ func main() {
 		func(ctx context.Context) error { return sqlDB.PingContext(ctx) },
 		func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 	))
-	// Later phases register /api/v1 routes here using gdb, rdb and cfg.
+	catalogRepo := repository.NewCatalogRepository(gdb)
+	catalogSvc := service.NewCatalogService(catalogRepo, rdb)
+	catalogH := handler.NewCatalogHandler(catalogSvc)
+	v1 := r.Group("/api/v1")
+	v1.GET("/events", catalogH.ListEvents)
+	v1.GET("/events/:id", catalogH.GetEvent)
+	v1.GET("/showtimes/:id/seats", catalogH.GetShowtimeSeats)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

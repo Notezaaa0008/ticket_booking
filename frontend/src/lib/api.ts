@@ -34,3 +34,83 @@ export async function getHealth(): Promise<Health> {
   const res = await fetch(`${BASE_URL}/healthz`, { cache: "no-store" });
   return (await res.json()) as Health;
 }
+
+export type EventListItem = {
+  id: string;
+  title: string;
+  venue: string;
+  poster_url: string;
+  next_showtime_at: string;
+  min_price_satang: number;
+};
+
+export type EventListResponse = {
+  items: EventListItem[];
+  page: number;
+  limit: number;
+  total: number;
+};
+
+export type ListEventsParams = {
+  q?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+};
+
+export function listEvents(params: ListEventsParams = {}): Promise<EventListResponse> {
+  const sp = new URLSearchParams();
+  if (params.q) sp.set("q", params.q);
+  if (params.from) sp.set("from", params.from);
+  if (params.to) sp.set("to", params.to);
+  if (params.page != null) sp.set("page", String(params.page));
+  if (params.limit != null) sp.set("limit", String(params.limit));
+  const qs = sp.toString();
+  return apiFetch<EventListResponse>(`/api/v1/events${qs ? `?${qs}` : ""}`);
+}
+
+export type ShowtimeItem = {
+  id: string;
+  starts_at: string;
+  status: string;
+  available_seat_count: number;
+};
+
+export type EventDetail = {
+  id: string;
+  title: string;
+  description: string;
+  venue: string;
+  poster_url: string;
+  showtimes: ShowtimeItem[];
+};
+
+export function getEvent(id: string): Promise<EventDetail> {
+  return apiFetch<EventDetail>(`/api/v1/events/${id}`);
+}
+
+export type SeatItem = {
+  id: string;
+  row_label: string;
+  seat_number: number;
+  zone: string;
+  price_satang: number;
+  status: "available" | "held" | "sold";
+};
+
+export type SeatSummary = {
+  total: number;
+  available: number;
+  held: number;
+  sold: number;
+};
+
+export type ShowtimeSeatsResponse = {
+  seats: SeatItem[];
+  summary: SeatSummary;
+};
+
+export function getShowtimeSeats(showtimeId: string): Promise<ShowtimeSeatsResponse> {
+  return apiFetch<ShowtimeSeatsResponse>(`/api/v1/showtimes/${showtimeId}/seats`);
+}

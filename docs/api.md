@@ -44,6 +44,12 @@ Protected routes require `Authorization: Bearer <jwt>` (HS256, 24h, claims: user
 | 422 | `TOO_MANY_SEATS` | More than 6 seats |
 | 422 | `SHOWTIME_NOT_ON_SALE` | Showtime closed or in the past |
 | 422 | `AMOUNT_MISMATCH` | Webhook amount ≠ payment row (stored on payment as `failure_code`) |
+| 422 | `REFUND_NOT_ELIGIBLE` | Payment status not refundable |
+| 422 | `TICKET_ALREADY_USED` | Refund blocked or check-in on used ticket |
+| 422 | `TICKET_VOID` | Check-in on void ticket or non-PAID booking |
+| 422 | `AMOUNT_EXCEEDS_PAYMENT` | Refund total would exceed payment |
+| 409 | `REFUND_ALREADY_EXISTS` | Active refund already on payment |
+| 502 | `PROVIDER_FAILED` | Mock refund provider failed (refund row → FAILED) |
 | 429 | `RATE_LIMITED` | Login (5/min per IP+email) or booking (10/min per user) |
 | 500 | `INTERNAL_ERROR` | Server error (generic message; webhook processing failure after receive) |
 
@@ -274,5 +280,139 @@ After successful payment, seats show as **`sold`** on `GET /showtimes/{id}/seats
 
 ---
 
-## Out of scope in this document
-Admin, refund processing (Phase 5+).
+## Admin (Phase 5)
+
+All routes under `/admin/*` require **JWT with role `admin`**.  
+401: `UNAUTHENTICATED`. 403: `FORBIDDEN` for non-admin users.
+
+Paginated list responses: `{ "items": [...], "page", "limit", "total" }` (default `limit` 20).
+
+### GET /admin/stats
+**200:**
+```json
+{
+  "revenue_satang": 1380000,
+  "tickets_sold": 14,
+  "bookings_by_status": { "PAID": 9 },
+  "payments_by_status": { "SUCCEEDED": 9 },
+  "needs_refund_count": 0,
+  "bookings_today": 9
+}
+```
+`revenue_satang` = sum of `SUCCEEDED` + `REFUNDED` payments minus sum of **COMPLETED** refunds.
+
+---
+
+### Events & showtimes
+
+#### GET /admin/events
+**200:** `{ "items": [ admin_event, ... ] }` — each event includes nested `showtimes[]` with `seat_count`, `booking_count`.
+
+#### POST /admin/events
+Body: `{ "title", "venue", "description?", "poster_url?", "status?" }` (`draft` | `published` | `archived`, default `published`).  
+**201:** event object. Invalidates Redis `events:list:*`.
+
+#### PUT /admin/events/{id}
+Body: partial fields as POST. **200:** updated event. Invalidates event list cache.
+
+#### DELETE /admin/events/{id}
+If the event has showtimes → **200** `{ "result": "archived" }` (status set to `archived`).  
+If no showtimes → **200** `{ "result": "deleted" }`.
+
+#### POST /admin/events/{id}/showtimes
+Body:
+```json
+{
+  "starts_at": "2026-12-01T19:00:00+07:00",
+  "rows": 5,
+  "seats_per_row": 10,
+  "price_satang": 15000,
+  "price_satang_by_row": { "A": 30000 }
+}
+```
+Max 20 rows, 30 seats per row; row labels `A`–`T`. Creates showtime + all seats in one transaction.  
+**201:** showtime with `seat_count`. Invalidates event list cache.
+
+#### PUT /admin/showtimes/{id}
+Body: `{ "status"?: "on_sale"|"closed"|"cancelled", "starts_at"?, "price_satang_by_row"?: { "B": 5000 } }`.  
+Showtimes are never deleted (D5). Row price changes affect **future** bookings only.  
+**200:** showtime object.
+
+---
+
+### GET /admin/bookings
+Query: `status`, `user_id` (UUID), `email` (case-insensitive exact match), `showtime_id` (UUID), `page` (default 1).  
+**200:** page of bookings with `user_email`, `event_title`, `starts_at`, `seats[]`, `latest_payment_status`, `total_satang`.  
+**400:** unknown `status`, invalid UUID filters.
+
+#### GET /admin/bookings/{id}/timeline
+**200:**
+```json
+{
+  "booking": { ... },
+  "payments": [ ... ],
+  "refunds": [ ... ],
+  "events": [
+    {
+      "source": "booking" | "payment",
+      "event_type": "BOOKING_CREATED",
+      "outcome": "SUCCESS" | "FAILURE" | "IGNORED",
+      "reason_code": "",
+      "actor_type": "USER" | "ADMIN" | "SYSTEM" | "GATEWAY",
+      "from_status": "",
+      "to_status": "PENDING",
+      "created_at": "..."
+    }
+  ]
+}
+```
+Events are `booking_events` ∪ `payment_events` ordered by `created_at`.  
+**404:** unknown booking id.
+
+---
+
+### GET /admin/payments
+Query: `status`, `page`.  
+**200:** payments with `user_email`, `booking_status`, `event_title`, `provider_ref`, `failure_code`, `failure_message`.  
+Filter `status=NEEDS_REFUND` for payments that require manual refund.
+
+---
+
+### Refunds
+
+#### POST /admin/payments/{id}/refunds
+**Header:** `Idempotency-Key` (required). Same key → **200** with existing refund.  
+Body: `{ "reason_code": "CUSTOMER_REQUEST", "note": "..." }` — `reason_code` must match `^[A-Z_]{1,64}$`.  
+Full refund only (amount = payment amount). Eligible payment statuses: `SUCCEEDED`, `NEEDS_REFUND`.  
+**201:** refund object. Rejected cases write `REFUND_REJECTED` audit event (no refund row).
+
+**422:** `REFUND_NOT_ELIGIBLE`, `TICKET_ALREADY_USED`.  
+**409:** `REFUND_ALREADY_EXISTS`.
+
+**Audit (success):** `REFUND_REQUESTED` / SUCCESS, actor `ADMIN`; idempotency key stored in event `raw_payload`.
+
+#### POST /admin/refunds/{id}/process
+Calls mock refund provider (`RefundProvider` in server).  
+**200:** refund with `status` `COMPLETED` or `FAILED`.  
+On success: payment → `REFUNDED`, booking → `REFUNDED` if was `PAID`, tickets → `VOID`, seats released if showtime not started.  
+On provider failure: refund → `FAILED` (`failure_code`: `PROVIDER_FAILED`); payment/booking unchanged; retry with a new refund request.  
+Re-processing a `COMPLETED` refund is idempotent (no new events).
+
+**Audit:** `REFUND_COMPLETED` + `BOOKING_REFUNDED`, or `REFUND_FAILED`.
+
+#### GET /admin/refunds
+Query: `status`, `page`. **200:** page of refund rows.
+
+---
+
+### POST /admin/tickets/{code}/check-in
+Ticket must be `VALID` and booking `PAID`. First check-in sets `USED` + `checked_in_at`.  
+**200:** `{ "result": "CHECKED_IN", "ticket": { ... } }`  
+**422:** `TICKET_ALREADY_USED`, `TICKET_VOID`.  
+**404:** unknown code.
+
+---
+
+### Admin audit notes
+- Refund rejections after rollback: `REFUND_REJECTED` written on plain connection (same pattern as payment create failures).
+- Event tables remain append-only; admin flows append new events only.

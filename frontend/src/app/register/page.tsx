@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { Alert, AuthLayout, Button, Field, Input } from "@/components/ui";
 import { ApiError } from "@/lib/api";
-import { safeNext, useAuth } from "@/lib/auth";
+import { postLoginRedirect, useAuth } from "@/lib/auth";
 
 function registerMessage(e: unknown): string {
   if (e instanceof ApiError) {
@@ -35,8 +36,9 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      await register(email, password, name);
-      router.replace(safeNext(new URLSearchParams(window.location.search).get("next")));
+      const user = await register(email, password, name);
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.replace(postLoginRedirect(user, next));
     } catch (e) {
       setError(registerMessage(e));
       setBusy(false);
@@ -44,36 +46,37 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="mx-auto max-w-sm space-y-4 p-6">
-      <h1 className="text-xl font-bold">Create an account</h1>
-      <form onSubmit={onSubmit} className="space-y-3">
-        <label className="block text-sm">
-          Name
-          <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded border px-3 py-2" autoComplete="name" />
-        </label>
-        <label className="block text-sm">
-          Email
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 w-full rounded border px-3 py-2" autoComplete="email" />
-        </label>
-        <label className="block text-sm">
-          Password (at least 8 characters)
-          <input type="password" required minLength={8} maxLength={72} value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 w-full rounded border px-3 py-2" autoComplete="new-password" />
-        </label>
-        {error && (
-          <p role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">
-            {error}
-          </p>
-        )}
-        <button type="submit" disabled={busy} className="w-full rounded bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+    <AuthLayout title="Create an account" subtitle="Join to reserve seats and receive digital tickets.">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="Name">
+          <Input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+        </Field>
+        <Field label="Email">
+          <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        </Field>
+        <Field label="Password">
+          <Input
+            type="password"
+            required
+            minLength={8}
+            maxLength={72}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            placeholder="At least 8 characters"
+          />
+        </Field>
+        {error && <Alert variant="error">{error}</Alert>}
+        <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Creating account…" : "Register"}
-        </button>
+        </Button>
       </form>
-      <p className="text-sm text-gray-600">
+      <p className="mt-6 text-center text-sm text-slate-500">
         Already registered?{" "}
-        <Link href="/login" className="underline">
+        <Link href="/login" className="font-medium text-slate-900 hover:underline">
           Log in
         </Link>
       </p>
-    </main>
+    </AuthLayout>
   );
 }

@@ -2,21 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useAuth } from "@/lib/auth";
+import { LoadingState, PageShell } from "@/components/ui";
+import { resolveRootRedirect, useAuth } from "@/lib/auth";
 
-/** Default entry: send visitors to login or the event list based on session. */
+/** Root URL: `/events` for guests and users, `/admin` for admins (no standalone landing page). */
 export default function Home() {
   const { state } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (state.status === "loading") return;
-    router.replace(state.status === "authenticated" ? "/events" : "/login");
-  }, [state.status, router]);
+    const target = resolveRootRedirect(state);
+    if (target) router.replace(target);
+  }, [state, router]);
 
   return (
-    <main className="mx-auto max-w-xl p-8">
-      <p className="text-gray-500">Loading…</p>
-    </main>
+    <PageShell>
+      <LoadingState />
+    </PageShell>
   );
 }

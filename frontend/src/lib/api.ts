@@ -284,3 +284,190 @@ export type Ticket = {
 export async function listTickets(): Promise<Ticket[]> {
   return (await apiFetch<{ items: Ticket[] }>("/api/v1/tickets")).items;
 }
+
+// ---------- admin ----------
+
+export type Page<T> = { items: T[]; page: number; limit: number; total: number };
+
+export type AdminShowtime = {
+  id: string;
+  event_id: string;
+  starts_at: string;
+  status: "on_sale" | "closed" | "cancelled";
+  seat_count: number;
+  booking_count: number;
+};
+
+export type AdminEvent = {
+  id: string;
+  title: string;
+  description: string;
+  venue: string;
+  poster_url: string;
+  status: "draft" | "published" | "archived";
+  created_at: string;
+  showtimes: AdminShowtime[];
+};
+
+export type EventInput = { title?: string; description?: string; venue?: string; poster_url?: string; status?: string };
+
+export async function adminListEvents(): Promise<AdminEvent[]> {
+  return (await apiFetch<{ items: AdminEvent[] }>("/api/v1/admin/events")).items;
+}
+
+export function adminCreateEvent(input: EventInput): Promise<AdminEvent> {
+  return apiFetch<AdminEvent>("/api/v1/admin/events", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function adminDeleteEvent(id: string): Promise<{ result: "deleted" | "archived" }> {
+  return apiFetch<{ result: "deleted" | "archived" }>(`/api/v1/admin/events/${id}`, { method: "DELETE" });
+}
+
+export type ShowtimeInput = {
+  starts_at: string;
+  rows: number;
+  seats_per_row: number;
+  price_satang: number;
+  price_satang_by_row?: Record<string, number>;
+};
+
+export function adminCreateShowtime(eventId: string, input: ShowtimeInput): Promise<AdminShowtime> {
+  return apiFetch<AdminShowtime>(`/api/v1/admin/events/${eventId}/showtimes`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function adminUpdateShowtime(
+  id: string,
+  input: { status?: AdminShowtime["status"]; starts_at?: string },
+): Promise<AdminShowtime> {
+  return apiFetch<AdminShowtime>(`/api/v1/admin/showtimes/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export type AdminBooking = {
+  id: string;
+  user_email: string;
+  showtime_id: string;
+  starts_at: string;
+  event_title: string;
+  seats: string[];
+  status: BookingStatus;
+  total_satang: number;
+  latest_payment_status: PaymentStatus | "";
+  created_at: string;
+  expires_at: string;
+};
+
+export type AdminBookingListParams = {
+  status?: string;
+  user_id?: string;
+  email?: string;
+  showtime_id?: string;
+  page?: number;
+};
+
+export function adminListBookings(params: AdminBookingListParams = {}): Promise<Page<AdminBooking>> {
+  const sp = new URLSearchParams({ page: String(params.page ?? 1) });
+  if (params.status) sp.set("status", params.status);
+  if (params.user_id) sp.set("user_id", params.user_id);
+  if (params.email) sp.set("email", params.email);
+  if (params.showtime_id) sp.set("showtime_id", params.showtime_id);
+  return apiFetch<Page<AdminBooking>>(`/api/v1/admin/bookings?${sp.toString()}`);
+}
+
+export type AdminPayment = Payment & {
+  provider_ref: string;
+  user_email?: string;
+  booking_status?: BookingStatus;
+  event_title?: string;
+};
+
+export function adminListPayments(status: string, page: number): Promise<Page<AdminPayment>> {
+  const sp = new URLSearchParams({ page: String(page) });
+  if (status) sp.set("status", status);
+  return apiFetch<Page<AdminPayment>>(`/api/v1/admin/payments?${sp.toString()}`);
+}
+
+export type RefundStatus = "REQUESTED" | "COMPLETED" | "FAILED" | "REJECTED";
+
+export type Refund = {
+  id: string;
+  payment_id: string;
+  booking_id: string;
+  amount_satang: number;
+  status: RefundStatus;
+  reason_code: string;
+  note: string;
+  provider_ref?: string;
+  failure_code?: string;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type Outcome = "SUCCESS" | "FAILURE" | "IGNORED";
+
+export type TimelineEvent = {
+  source: "booking" | "payment";
+  event_type: string;
+  outcome: Outcome;
+  reason_code: string;
+  actor_type: string;
+  from_status: string;
+  to_status: string;
+  created_at: string;
+};
+
+export type BookingTimeline = {
+  booking: AdminBooking;
+  payments: AdminPayment[];
+  refunds: Refund[];
+  events: TimelineEvent[];
+};
+
+export function adminBookingTimeline(id: string): Promise<BookingTimeline> {
+  return apiFetch<BookingTimeline>(`/api/v1/admin/bookings/${id}/timeline`);
+}
+
+/** The same idempotency key returns the same refund, so a double click never opens two. */
+export function adminRequestRefund(
+  paymentId: string,
+  reasonCode: string,
+  note: string,
+  idempotencyKey: string,
+): Promise<Refund> {
+  return apiFetch<Refund>(`/api/v1/admin/payments/${paymentId}/refunds`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ reason_code: reasonCode, note }),
+  });
+}
+
+export function adminProcessRefund(refundId: string): Promise<Refund> {
+  return apiFetch<Refund>(`/api/v1/admin/refunds/${refundId}/process`, { method: "POST" });
+}
+
+export function adminListRefunds(status: string, page: number): Promise<Page<Refund>> {
+  const sp = new URLSearchParams({ page: String(page) });
+  if (status) sp.set("status", status);
+  return apiFetch<Page<Refund>>(`/api/v1/admin/refunds?${sp.toString()}`);
+}
+
+export type CheckInResult = { result: "CHECKED_IN"; ticket: Ticket };
+
+export function adminCheckIn(code: string): Promise<CheckInResult> {
+  return apiFetch<CheckInResult>(`/api/v1/admin/tickets/${encodeURIComponent(code)}/check-in`, { method: "POST" });
+}
+
+export type AdminStats = {
+  revenue_satang: number;
+  tickets_sold: number;
+  bookings_by_status: Record<string, number>;
+  payments_by_status: Record<string, number>;
+  needs_refund_count: number;
+  bookings_today: number;
+};
+
+export function adminStats(): Promise<AdminStats> {
+  return apiFetch<AdminStats>("/api/v1/admin/stats");
+}

@@ -3,6 +3,18 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  LoadingState,
+  PageHeader,
+  PageShell,
+  Pagination,
+  Panel,
+} from "@/components/ui";
 import { ApiError, listEvents, type EventListItem, type EventListResponse } from "@/lib/api";
 import { formatBaht, formatDateTime } from "@/lib/format";
 
@@ -28,46 +40,28 @@ function SearchForm({
   const [formTo, setFormTo] = useState(initialTo);
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSearch(formQ.trim(), formFrom, formTo);
-      }}
-      className="space-y-3 rounded border p-4"
-    >
-      <label className="block text-sm">
-        Search
-        <input
-          className="mt-1 w-full rounded border px-3 py-2"
-          value={formQ}
-          onChange={(e) => setFormQ(e.target.value)}
-          placeholder="Title or venue"
-        />
-      </label>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-sm">
-          From
-          <input
-            type="date"
-            className="mt-1 w-full rounded border px-3 py-2"
-            value={formFrom}
-            onChange={(e) => setFormFrom(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm">
-          To
-          <input
-            type="date"
-            className="mt-1 w-full rounded border px-3 py-2"
-            value={formTo}
-            onChange={(e) => setFormTo(e.target.value)}
-          />
-        </label>
-      </div>
-      <button type="submit" className="rounded bg-black px-4 py-2 text-sm text-white">
-        Search
-      </button>
-    </form>
+    <Panel>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSearch(formQ.trim(), formFrom, formTo);
+        }}
+        className="space-y-4"
+      >
+        <Field label="Search">
+          <Input value={formQ} onChange={(e) => setFormQ(e.target.value)} placeholder="Title or venue" />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="From">
+            <Input type="date" value={formFrom} onChange={(e) => setFormFrom(e.target.value)} />
+          </Field>
+          <Field label="To">
+            <Input type="date" value={formTo} onChange={(e) => setFormTo(e.target.value)} />
+          </Field>
+        </div>
+        <Button type="submit">Search events</Button>
+      </form>
+    </Panel>
   );
 }
 
@@ -117,65 +111,51 @@ function EventsResultsPanel({
   }, [q, from, to, page, reload]);
 
   if (state.kind === "loading") {
-    return <p className="text-gray-500">Loading events…</p>;
+    return <LoadingState message="Loading events…" />;
   }
 
   if (state.kind === "error") {
     return (
-      <div className="rounded border border-red-300 bg-red-50 p-4 space-y-2">
-        <p className="font-medium text-red-700">
-          {state.code === "VALIDATION_FAILED" ? "Invalid search parameters" : "Could not load events"}
-        </p>
-        <p className="text-sm text-red-600">{state.message}</p>
-        <button type="button" onClick={() => setReload((n) => n + 1)} className="text-sm underline">
-          Retry
-        </button>
-      </div>
+      <Alert
+        variant="error"
+        title={state.code === "VALIDATION_FAILED" ? "Invalid search parameters" : "Could not load events"}
+        onRetry={() => setReload((n) => n + 1)}
+      >
+        {state.message}
+      </Alert>
     );
   }
 
   if (state.kind === "empty") {
-    return <p className="text-gray-600">No events match your search. Try different dates or keywords.</p>;
+    return (
+      <EmptyState
+        title="No events found"
+        description="Try different dates or keywords, or check back later for new showtimes."
+      />
+    );
   }
 
   const totalPages = Math.max(1, Math.ceil(state.data.total / state.data.limit));
   return (
-    <>
+    <div className="space-y-4">
       <ul className="space-y-3">
         {state.data.items.map((ev: EventListItem) => (
-          <li key={ev.id} className="rounded border p-4 hover:bg-gray-50">
-            <Link href={`/events/${ev.id}`} className="block space-y-1">
-              <h2 className="font-semibold">{ev.title}</h2>
-              <p className="text-sm text-gray-600">{ev.venue}</p>
-              <p className="text-sm">
-                Next: {formatDateTime(ev.next_showtime_at)} · from {formatBaht(ev.min_price_satang)}
+          <li key={ev.id}>
+            <Link
+              href={`/events/${ev.id}`}
+              className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            >
+              <h2 className="text-lg font-semibold text-slate-900">{ev.title}</h2>
+              <p className="mt-1 text-sm text-slate-500">{ev.venue}</p>
+              <p className="mt-3 text-sm text-slate-700">
+                Next show · {formatDateTime(ev.next_showtime_at)} · from {formatBaht(ev.min_price_satang)}
               </p>
             </Link>
           </li>
         ))}
       </ul>
-      <div className="flex items-center justify-between text-sm">
-        <button
-          type="button"
-          disabled={page <= 1}
-          className="rounded border px-3 py-1 disabled:opacity-40"
-          onClick={() => onPageChange(page - 1)}
-        >
-          Previous
-        </button>
-        <span>
-          Page {page} of {totalPages}
-        </span>
-        <button
-          type="button"
-          disabled={page >= totalPages}
-          className="rounded border px-3 py-1 disabled:opacity-40"
-          onClick={() => onPageChange(page + 1)}
-        >
-          Next
-        </button>
-      </div>
-    </>
+      <Pagination page={page} totalPages={totalPages} onPrev={() => onPageChange(page - 1)} onNext={() => onPageChange(page + 1)} />
+    </div>
   );
 }
 
@@ -202,13 +182,8 @@ function EventsContent() {
   };
 
   return (
-    <main className="mx-auto max-w-2xl p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Events</h1>
-        <Link href="/" className="text-sm text-gray-600 underline">
-          Home
-        </Link>
-      </div>
+    <PageShell className="max-w-2xl space-y-6">
+      <PageHeader title="Events" description="Browse upcoming shows and pick a time that works for you." />
 
       <SearchForm
         key={`${q}|${from}|${to}`}
@@ -226,13 +201,19 @@ function EventsContent() {
         page={page}
         onPageChange={(p) => pushParams({ page: p })}
       />
-    </main>
+    </PageShell>
   );
 }
 
 export default function EventsPage() {
   return (
-    <Suspense fallback={<main className="p-6">Loading…</main>}>
+    <Suspense
+      fallback={
+        <PageShell>
+          <LoadingState />
+        </PageShell>
+      }
+    >
       <EventsContent />
     </Suspense>
   );

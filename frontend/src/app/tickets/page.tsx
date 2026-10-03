@@ -2,6 +2,8 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
+import { TicketQrModal } from "@/components/TicketQrModal";
+import { Alert, Button, EmptyState, LoadingState, PageHeader, PageShell } from "@/components/ui";
 import { ApiError, listTickets, type Ticket, type TicketStatus } from "@/lib/api";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
@@ -20,6 +22,7 @@ export default function TicketsPage() {
   const authenticated = auth.status === "authenticated";
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [tick, setTick] = useState(0);
+  const [expanded, setExpanded] = useState<Ticket | null>(null);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -43,41 +46,63 @@ export default function TicketsPage() {
   }, [authenticated, tick, logout]);
 
   return (
-    <main className="mx-auto max-w-2xl space-y-4 p-6">
-      <h1 className="text-xl font-bold">My tickets</h1>
-      {(!authenticated || state.kind === "loading") && <p className="text-gray-500">Loading tickets…</p>}
+    <PageShell className="max-w-6xl space-y-6">
+      <PageHeader title="My tickets" description="Show these QR codes at the venue entrance." />
+
+      {(!authenticated || state.kind === "loading") && <LoadingState message="Loading tickets…" />}
       {authenticated && state.kind === "error" && (
-        <div className="space-y-2 rounded border border-red-300 bg-red-50 p-4">
-          <p className="font-medium text-red-700">Could not load your tickets</p>
-          <p className="text-sm text-red-600">{state.message}</p>
-          <button type="button" className="text-sm underline" onClick={() => setTick((n) => n + 1)}>
-            Retry
-          </button>
-        </div>
+        <Alert variant="error" title="Could not load your tickets" onRetry={() => setTick((n) => n + 1)}>
+          {state.message}
+        </Alert>
       )}
       {authenticated && state.kind === "ok" && state.tickets.length === 0 && (
-        <p className="text-gray-600">You have no tickets yet. Tickets appear here after a successful payment.</p>
+        <EmptyState
+          title="No tickets yet"
+          description="Tickets appear here after you complete payment for a booking."
+        />
       )}
       {authenticated && state.kind === "ok" && state.tickets.length > 0 && (
-        <ul className="space-y-3">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {state.tickets.map((t) => (
-            <li key={t.code} className="flex gap-4 rounded border p-4">
-              <QRCodeSVG value={t.code} size={112} title={`Ticket ${t.seat_label}`} />
-              <div className="space-y-1 text-sm">
-                <p className="font-medium">{t.event_title}</p>
-                <p className="text-gray-600">
-                  {t.venue} · {formatDateTime(t.starts_at)}
-                </p>
-                <p>
-                  Seat {t.seat_label} ({t.zone})
-                </p>
-                <p>Status: {STATUS_LABEL[t.status]}</p>
-                <p className="font-mono text-xs text-gray-500">{t.code}</p>
-              </div>
+            <li key={t.code}>
+              <TicketCard ticket={t} onEnlarge={() => setExpanded(t)} />
             </li>
           ))}
         </ul>
       )}
-    </main>
+      {expanded && <TicketQrModal ticket={expanded} onClose={() => setExpanded(null)} />}
+    </PageShell>
+  );
+}
+
+function TicketCard({ ticket, onEnlarge }: { ticket: Ticket; onEnlarge: () => void }) {
+  return (
+    <article className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <button
+        type="button"
+        className="group mx-auto rounded-lg border border-slate-100 bg-white p-2 transition hover:border-slate-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+        onClick={onEnlarge}
+        aria-label={`Enlarge QR code for seat ${ticket.seat_label}`}
+      >
+        <QRCodeSVG value={ticket.code} size={120} title={`Ticket ${ticket.seat_label}`} />
+        <span className="mt-2 block text-xs font-medium text-slate-500 group-hover:text-slate-800">Tap to enlarge</span>
+      </button>
+      <div className="mt-4 flex flex-1 flex-col space-y-1 text-sm">
+        <p className="line-clamp-2 font-semibold text-slate-900">{ticket.event_title}</p>
+        <p className="text-slate-500">
+          {ticket.venue} · {formatDateTime(ticket.starts_at)}
+        </p>
+        <p className="text-slate-700">
+          Seat {ticket.seat_label} · {ticket.zone}
+        </p>
+        <p className="text-slate-600">Status: {STATUS_LABEL[ticket.status]}</p>
+        <p className="truncate font-mono text-xs text-slate-400" title={ticket.code}>
+          {ticket.code}
+        </p>
+      </div>
+      <Button variant="secondary" className="mt-4 w-full text-xs" onClick={onEnlarge}>
+        Enlarge QR
+      </Button>
+    </article>
   );
 }

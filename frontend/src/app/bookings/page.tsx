@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Alert, EmptyState, LoadingState, PageHeader, PageShell } from "@/components/ui";
 import { ApiError, listBookings, type Booking } from "@/lib/api";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { formatBaht, formatDateTime } from "@/lib/format";
@@ -41,44 +42,48 @@ export default function BookingsPage() {
   }, [authenticated, reloadTick, logout]);
 
   return (
-    <main className="mx-auto max-w-3xl space-y-4 p-6">
-      <h1 className="text-xl font-bold">My bookings</h1>
-      {(auth.status !== "authenticated" || state.kind === "loading") && <p className="text-gray-500">Loading…</p>}
+    <PageShell className="max-w-6xl space-y-6">
+      <PageHeader title="My bookings" description="Track holds, payments, and ticket status for each reservation." />
+
+      {(auth.status !== "authenticated" || state.kind === "loading") && <LoadingState message="Loading your bookings…" />}
       {state.kind === "error" && (
-        <div className="space-y-2 rounded border border-red-300 bg-red-50 p-4">
-          <p className="font-medium text-red-700">Could not load your bookings</p>
-          <p className="text-sm text-red-600">{state.message}</p>
-          <button type="button" className="text-sm underline" onClick={() => setReloadTick((n) => n + 1)}>
-            Retry
-          </button>
-        </div>
+        <Alert variant="error" title="Could not load your bookings" onRetry={() => setReloadTick((n) => n + 1)}>
+          {state.message}
+        </Alert>
       )}
       {authenticated && state.kind === "ok" && state.items.length === 0 && (
-        <p className="text-gray-600">
-          You have no bookings yet.{" "}
-          <Link href="/events" className="underline">
-            Browse events
-          </Link>
-        </p>
+        <EmptyState
+          title="No bookings yet"
+          description="When you reserve seats, they will show up here with status and payment details."
+          action={
+            <Link href="/events" className="text-sm font-medium text-slate-900 underline underline-offset-2">
+              Browse events
+            </Link>
+          }
+        />
       )}
       {authenticated && state.kind === "ok" && state.items.length > 0 && (
-        <ul className="space-y-3">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {state.items.map((b) => (
             <li key={b.id}>
-              <Link href={`/bookings/${b.id}`} className="block space-y-1 rounded border p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{b.event_title}</span>
+              <Link
+                href={`/bookings/${b.id}`}
+                className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <span className="line-clamp-2 font-semibold text-slate-900">{b.event_title}</span>
                   <StatusBadge status={b.status} />
                 </div>
-                <p className="text-sm text-gray-600">
-                  {formatDateTime(b.starts_at)} · {b.items.map((i) => `${i.row_label}${i.seat_number}`).join(", ")} ·{" "}
-                  {formatBaht(b.total_satang)}
+                <p className="mt-auto text-sm text-slate-600">{formatDateTime(b.starts_at)}</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {b.items.map((i) => `${i.row_label}${i.seat_number}`).join(", ")}
                 </p>
+                <p className="mt-2 text-sm font-medium tabular-nums text-slate-900">{formatBaht(b.total_satang)}</p>
               </Link>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </PageShell>
   );
 }

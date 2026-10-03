@@ -149,6 +149,8 @@ const (
 	ReasonRefundAlreadyExists ReasonCode = "REFUND_ALREADY_EXISTS"
 	ReasonProviderFailed      ReasonCode = "PROVIDER_FAILED"
 	ReasonAmountExceeds       ReasonCode = "AMOUNT_EXCEEDS_PAYMENT"
+	// check-in
+	ReasonTicketVoid ReasonCode = "TICKET_VOID"
 	// API-only codes (returned to clients, not used as audit reasons)
 	ReasonUnauthenticated     ReasonCode = "UNAUTHENTICATED"
 	ReasonForbidden           ReasonCode = "FORBIDDEN"
@@ -186,6 +188,7 @@ var httpStatus = map[ReasonCode]int{
 	ReasonRefundAlreadyExists: http.StatusConflict,
 	ReasonProviderFailed:      http.StatusBadGateway,
 	ReasonAmountExceeds:       http.StatusUnprocessableEntity,
+	ReasonTicketVoid:          http.StatusUnprocessableEntity,
 	ReasonUnauthenticated:     http.StatusUnauthorized,
 	ReasonForbidden:           http.StatusForbidden,
 	ReasonNotFound:            http.StatusNotFound,

@@ -93,6 +93,8 @@ func main() {
 		log.Printf("mock gateway enabled (webhook target %s)", webhookURL)
 	}
 	handler.RegisterPaymentRoutes(v1, paymentDeps)
+	adminSvc := service.NewAdminService(repository.NewAdminRepository(gdb), paymentRepo, repository.NewBookingRepository(gdb), rdb)
+	handler.RegisterAdminRoutes(v1, handler.AdminDeps{Admin: handler.NewAdminHandler(adminSvc), Verify: authSvc.VerifyToken})
 
 	jobCtx, stopJob := context.WithCancel(context.Background())
 	jobDone := make(chan struct{})

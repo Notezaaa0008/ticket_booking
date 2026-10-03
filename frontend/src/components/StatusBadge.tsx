@@ -1,14 +1,16 @@
 import type { BookingStatus } from "@/lib/api";
 
 const STYLES: Record<BookingStatus, { label: string; cls: string }> = {
-  PENDING: { label: "Pending payment", cls: "bg-yellow-100 text-yellow-800 border-yellow-400" },
-  PAID: { label: "Paid", cls: "bg-green-100 text-green-800 border-green-400" },
-  EXPIRED: { label: "Expired", cls: "bg-gray-100 text-gray-700 border-gray-400" },
-  CANCELLED: { label: "Cancelled", cls: "bg-red-100 text-red-800 border-red-400" },
-  REFUNDED: { label: "Refunded", cls: "bg-blue-100 text-blue-800 border-blue-400" },
+  PENDING: { label: "Pending payment", cls: "bg-amber-50 text-amber-900 ring-amber-600/20" },
+  PAID: { label: "Paid", cls: "bg-emerald-50 text-emerald-800 ring-emerald-600/20" },
+  EXPIRED: { label: "Expired", cls: "bg-slate-100 text-slate-600 ring-slate-500/20" },
+  CANCELLED: { label: "Cancelled", cls: "bg-rose-50 text-rose-800 ring-rose-600/20" },
+  REFUNDED: { label: "Refunded", cls: "bg-sky-50 text-sky-800 ring-sky-600/20" },
 };
 
 export function StatusBadge({ status }: { status: BookingStatus }) {
   const s = STYLES[status];
-  return <span className={`rounded border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>;
+  return (
+    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${s.cls}`}>{s.label}</span>
+  );
 }

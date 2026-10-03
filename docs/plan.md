@@ -48,7 +48,7 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 | 2 | Catalog | ☐ | | |
 | 3 | Auth + Booking | ☐ | | |
 | 4 | Payment + Ticket | ☑ PHASE VERIFIED (PASS 100%) | feat(phase4) | 2026-10-03 |
-| 5 | Admin + Refund | ☐ | | |
+| 5 | Admin + Refund | ☑ PHASE VERIFIED (PASS 100%) | phase-5-done | 2026-10-03 |
 | 6 | Hardening + Delivery | ☐ | | |
 
 ---
@@ -233,40 +233,42 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 
 **ต้องให้คนอนุมัติ:** กฎการคืนเงินทั้งหมด (Q1-Q6 ใน Task Prompt): ใครคืนเงินได้, เต็ม/บางส่วน, ตั๋วที่ใช้แล้ว, การปล่อยที่นั่งหลังคืนเงิน, การแก้/ลบรอบที่มีคนจ่ายแล้ว, กฎ check-in
 
+> **สถานะ Phase 5:** **PHASE VERIFIED (PASS 100%)** — 2026-10-03 (`/verify-phase` + human E2E P5-26, sign-off P5-42)
+
 ### Checklist: สิทธิ์และการจัดการข้อมูล
-- [ ] **P5-00** ชุดตรวจมาตรฐานผ่าน
-- [ ] **P5-01** test วนทุก route ใต้ `/admin/*`: user ธรรมดา → 403, ไม่มี token → 401
-- [ ] **P5-02** หน้า `/admin` เข้าไม่ได้ถ้าไม่ใช่ admin (ทดสอบด้วยบัญชีธรรมดา)
-- [ ] **P5-03** สร้าง event + รอบใหม่แล้วเห็นฝั่งผู้ใช้ (ภายใน TTL ของ cache หรือทันทีถ้า invalidate)
-- [ ] **P5-04** สร้างรอบได้ที่นั่งเท่ากับ แถว × คอลัมน์ ที่กำหนด และเป็น atomic (ล้มเหลวแล้วไม่เหลือข้อมูลครึ่งทาง)
-- [ ] **P5-05** แก้ราคาที่นั่งแล้วไม่กระทบ booking เดิม (ราคาถูกคัดลอกไว้ใน `booking_items`)
-- [ ] **P5-06** ลบ/ปิดรอบที่มี booking PAID หรือ PENDING เป็นไปตามกฎที่คนอนุมัติ และไม่ทำให้ข้อมูลเสีย
+- [x] **P5-00** ชุดตรวจมาตรฐานผ่าน — VERIFIED
+- [x] **P5-01** test วนทุก route ใต้ `/admin/*`: user ธรรมดา → 403, ไม่มี token → 401 — VERIFIED (`TestAdmin_EveryRouteRequiresAdmin`)
+- [x] **P5-02** หน้า `/admin` เข้าไม่ได้ถ้าไม่ใช่ admin (ทดสอบด้วยบัญชีธรรมดา) — VERIFIED (`AdminGuard` + human browser)
+- [x] **P5-03** สร้าง event + รอบใหม่แล้วเห็นฝั่งผู้ใช้ (ภายใน TTL ของ cache หรือทันทีถ้า invalidate) — VERIFIED (`TestAdmin_CatalogCacheInvalidatedAndVisibleToUsers`)
+- [x] **P5-04** สร้างรอบได้ที่นั่งเท่ากับ แถว × คอลัมน์ ที่กำหนด และเป็น atomic (ล้มเหลวแล้วไม่เหลือข้อมูลครึ่งทาง) — VERIFIED (`TestAdmin_EventsAndShowtimes`)
+- [x] **P5-05** แก้ราคาที่นั่งแล้วไม่กระทบ booking เดิม (ราคาถูกคัดลอกไว้ใน `booking_items`) — VERIFIED (`TestAdmin_RowPriceChangePreservesBookingItemPrices`)
+- [x] **P5-06** ลบ/ปิดรอบที่มี booking PAID หรือ PENDING เป็นไปตามกฎที่คนอนุมัติ และไม่ทำให้ข้อมูลเสีย — VERIFIED (`TestAdmin_ShowtimeUpdateWithPaidAndPendingBookings`, D5)
 
 ### Checklist: การดู log และข้อมูล
-- [ ] **P5-10** `/admin/bookings` กรองตามสถานะ/ผู้ใช้/รอบได้
-- [ ] **P5-11** `/admin/bookings/:id/timeline` แสดง booking, payment, refund และรายการ event รวมตามเวลา พร้อม outcome, reason_code, actor
-- [ ] **P5-12** `/admin/payments` กรองตามสถานะได้ และเห็น NEEDS_REFUND พร้อม `failure_code` ชัดเจน
-- [ ] **P5-13** UI timeline แสดง badge สำเร็จ/ล้มเหลว/ละเว้น แยกสีและข้อความชัดเจน
+- [x] **P5-10** `/admin/bookings` กรองตามสถานะ/ผู้ใช้/รอบได้ — VERIFIED (`TestAdmin_StatsListsAndTimeline`, admin bookings UI)
+- [x] **P5-11** `/admin/bookings/:id/timeline` แสดง booking, payment, refund และรายการ event รวมตามเวลา พร้อม outcome, reason_code, actor — VERIFIED (`TestAdmin_StatsListsAndTimeline`)
+- [x] **P5-12** `/admin/payments` กรองตามสถานะได้ และเห็น NEEDS_REFUND พร้อม `failure_code` ชัดเจน — VERIFIED (integration test + `/admin/payments` UI)
+- [x] **P5-13** UI timeline แสดง badge สำเร็จ/ล้มเหลว/ละเว้น แยกสีและข้อความชัดเจน — VERIFIED (`OutcomeBadge`, admin bookings timeline UI)
 
 ### Checklist: การคืนเงิน
-- [ ] **P5-20** ตารางเงื่อนไขการคืนเงินผ่าน test ครบ: SUCCEEDED ได้, NEEDS_REFUND ได้, PENDING/FAILED ถูกปฏิเสธ, มีตั๋ว USED ถูกปฏิเสธ (`TICKET_ALREADY_USED`), มีคำขอ active อยู่แล้วถูกปฏิเสธ (`REFUND_ALREADY_EXISTS`) โดยแต่ละกรณีมี event `REFUND_REJECTED` ที่ถูกต้อง
-- [ ] **P5-21** สร้างคำขอคืนเงินต้องมี `Idempotency-Key` (key เดิมได้ผลเดิม) และสร้าง `REFUND_REQUESTED` / SUCCESS (actor = ADMIN)
-- [ ] **P5-22** **ประมวลผลสำเร็จ:** refund = COMPLETED, payment = REFUNDED, booking = REFUNDED, ตั๋ว = VOID, การปล่อยที่นั่งตามที่อนุมัติ, มี event `REFUND_COMPLETED` และ `BOOKING_REFUNDED`
-- [ ] **P5-23** **ประมวลผลล้มเหลว** (mock provider ล้ม): refund = FAILED (`PROVIDER_FAILED`), payment/booking ไม่เปลี่ยน, มี `REFUND_FAILED`, และสร้างคำขอใหม่เพื่อลองอีกครั้งได้
-- [ ] **P5-24** เรียก process ซ้ำ/พร้อมกัน → ได้ผลสำเร็จครั้งเดียว ไม่มี event ซ้ำ (idempotent)
-- [ ] **P5-25** ผลรวมการคืนเงินที่ COMPLETED ไม่เกินยอด payment (test ตรงกับกฎ `AMOUNT_EXCEEDS_PAYMENT`)
-- [ ] **P5-26** เคสจริงครบ flow: จ่ายหลังหมดเวลาให้เกิด NEEDS_REFUND → admin คืนเงินผ่าน UI → timeline แสดงห่วงโซ่ครบ
-- [ ] **P5-27** event เดิมไม่ถูกแก้ (UPDATE/DELETE ยังถูกปฏิเสธ), การคืนเงินเพิ่มเฉพาะ event ใหม่
+- [x] **P5-20** ตารางเงื่อนไขการคืนเงินผ่าน test ครบ: SUCCEEDED ได้, NEEDS_REFUND ได้, PENDING/FAILED ถูกปฏิเสธ, มีตั๋ว USED ถูกปฏิเสธ (`TICKET_ALREADY_USED`), มีคำขอ active อยู่แล้วถูกปฏิเสธ (`REFUND_ALREADY_EXISTS`) โดยแต่ละกรณีมี event `REFUND_REJECTED` ที่ถูกต้อง — VERIFIED (`TestAdmin_RefundEligibilityMatrix`)
+- [x] **P5-21** สร้างคำขอคืนเงินต้องมี `Idempotency-Key` (key เดิมได้ผลเดิม) และสร้าง `REFUND_REQUESTED` / SUCCESS (actor = ADMIN) — VERIFIED (same test)
+- [x] **P5-22** **ประมวลผลสำเร็จ:** refund = COMPLETED, payment = REFUNDED, booking = REFUNDED, ตั๋ว = VOID, การปล่อยที่นั่งตามที่อนุมัติ, มี event `REFUND_COMPLETED` และ `BOOKING_REFUNDED` — VERIFIED (`TestAdmin_RefundSuccessFutureShowtimeReleasesSeats`, `TestAdmin_RefundSuccessStartedShowtimeKeepsSeats`)
+- [x] **P5-23** **ประมวลผลล้มเหลว** (mock provider ล้ม): refund = FAILED (`PROVIDER_FAILED`), payment/booking ไม่เปลี่ยน, มี `REFUND_FAILED`, และสร้างคำขอใหม่เพื่อลองอีกครั้งได้ — VERIFIED (`TestAdmin_RefundProviderFailureThenRetry`)
+- [x] **P5-24** เรียก process ซ้ำ/พร้อมกัน → ได้ผลสำเร็จครั้งเดียว ไม่มี event ซ้ำ (idempotent) — VERIFIED (`TestAdmin_RefundProcessTwiceAndConcurrently`)
+- [x] **P5-25** ผลรวมการคืนเงินที่ COMPLETED ไม่เกินยอด payment (test ตรงกับกฎ `AMOUNT_EXCEEDS_PAYMENT`) — VERIFIED (`TestAdmin_RefundAmountExceedsPayment`)
+- [x] **P5-26** เคสจริงครบ flow: จ่ายหลังหมดเวลาให้เกิด NEEDS_REFUND → admin คืนเงินผ่าน UI → timeline แสดงห่วงโซ่ครบ — VERIFIED (human E2E 2026-10-03)
+- [x] **P5-27** event เดิมไม่ถูกแก้ (UPDATE/DELETE ยังถูกปฏิเสธ), การคืนเงินเพิ่มเฉพาะ event ใหม่ — VERIFIED (`TestAdmin_RefundFlowEventsAppendOnly`)
 
 ### Checklist: check-in และ dashboard
-- [ ] **P5-30** check-in: ครั้งแรกสำเร็จ (ตั๋ว USED), ครั้งที่สองถูกปฏิเสธ, ตั๋ว VOID/ไม่มีรหัสถูกปฏิเสธ, check-in พร้อมกันมีผู้ชนะ 1 ราย
-- [ ] **P5-31** `/admin/stats` ตรงกับ SQL ที่ผู้ตรวจรันเอง: รายได้ (SUCCEEDED − คืนเงิน COMPLETED), ตั๋วที่ขาย, booking/payment แยกตามสถานะ, จำนวน NEEDS_REFUND
-- [ ] **P5-32** หน้า dashboard แสดงจำนวน NEEDS_REFUND เด่นชัดและลิงก์ไปรายการ
+- [x] **P5-30** check-in: ครั้งแรกสำเร็จ (ตั๋ว USED), ครั้งที่สองถูกปฏิเสธ, ตั๋ว VOID/ไม่มีรหัสถูกปฏิเสธ, check-in พร้อมกันมีผู้ชนะ 1 ราย — VERIFIED (`TestAdmin_CheckIn`)
+- [x] **P5-31** `/admin/stats` ตรงกับ SQL ที่ผู้ตรวจรันเอง: รายได้ (SUCCEEDED − คืนเงิน COMPLETED), ตั๋วที่ขาย, booking/payment แยกตามสถานะ, จำนวน NEEDS_REFUND — VERIFIED (`TestAdmin_StatsListsAndTimeline`)
+- [x] **P5-32** หน้า dashboard แสดงจำนวน NEEDS_REFUND เด่นชัดและลิงก์ไปรายการ — VERIFIED (`frontend/src/app/admin/page.tsx`)
 
 ### Checklist: อื่น ๆ
-- [ ] **P5-40** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High
-- [ ] **P5-41** `docs/api.md` อัปเดตครบทุก endpoint admin
-- [ ] **P5-42** 👤 คนอนุมัติกฎการคืนเงินและอ่านโค้ด transaction ของ refund ทุกบรรทัด
+- [x] **P5-40** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High — VERIFIED (two-phase `ProcessRefund`; provider outside DB lock tx)
+- [x] **P5-41** `docs/api.md` อัปเดตครบทุก endpoint admin — VERIFIED (`docs/api.md` Admin Phase 5)
+- [x] **P5-42** 👤 คนอนุมัติกฎการคืนเงินและอ่านโค้ด transaction ของ refund ทุกบรรทัด — VERIFIED (human sign-off 2026-10-03)
 
 ---
 

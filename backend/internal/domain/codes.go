@@ -128,6 +128,7 @@ const (
 	ReasonTooManySeats      ReasonCode = "TOO_MANY_SEATS"
 	ReasonValidationFailed  ReasonCode = "VALIDATION_FAILED"
 	ReasonHoldExpired       ReasonCode = "HOLD_EXPIRED"
+	ReasonUserCancelled     ReasonCode = "USER_CANCELLED"
 	ReasonBookingNotPending ReasonCode = "BOOKING_NOT_PENDING"
 	ReasonBookingNotFound   ReasonCode = "BOOKING_NOT_FOUND"
 	ReasonRedisFallbackUsed ReasonCode = "REDIS_FALLBACK_USED"
@@ -166,6 +167,7 @@ var httpStatus = map[ReasonCode]int{
 	ReasonTooManySeats:        http.StatusUnprocessableEntity,
 	ReasonValidationFailed:    http.StatusBadRequest,
 	ReasonHoldExpired:         http.StatusConflict,
+	ReasonUserCancelled:       http.StatusConflict,
 	ReasonBookingNotPending:   http.StatusConflict,
 	ReasonBookingNotFound:     http.StatusNotFound,
 	ReasonRedisFallbackUsed:   http.StatusInternalServerError, // informational, never returned

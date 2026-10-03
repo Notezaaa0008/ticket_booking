@@ -3,6 +3,17 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 failed=()
 
+# --- โหลดค่าจาก .env ถ้ามี ---
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+elif [ -f backend/.env ]; then
+  set -a
+  source backend/.env
+  set +a
+fi
+
 # --- integration env (override ได้จากภายนอก / CI) ---
 export TEST_DATABASE_URL=${TEST_DATABASE_URL:-"postgres://ticket:ticket@localhost:5432/ticket_booking_test?sslmode=disable"}
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/1}"
@@ -22,15 +33,20 @@ run() {
   if "$@"; then echo "OK: $name"; else echo "FAILED: $name"; failed+=("$name"); fi
 }
 
-# --- preflight: ถ้าจะบังคับ integration ต้องต่อ DB/Redis ได้จริง ---
+# --- preflight: เช็กการต่อ DB/Redis จริง ---
 preflight() {
   [ "$REQUIRE_INTEGRATION" = "1" ] || return 0
   local ok=0
-  if command -v pg_isready >/dev/null 2>&1; then
+  
+  # ใช้ psql ทดสอบการ authenticate จริงๆ แทน pg_isready
+  if command -v psql >/dev/null 2>&1; then
+    psql "$TEST_DATABASE_URL" -c "SELECT 1;" >/dev/null 2>&1 || { echo "postgres connection failed (auth/network): $TEST_DATABASE_URL"; ok=1; }
+  elif command -v pg_isready >/dev/null 2>&1; then
     pg_isready -d "$TEST_DATABASE_URL" >/dev/null 2>&1 || { echo "postgres not reachable: $TEST_DATABASE_URL"; ok=1; }
   else
     docker compose exec -T postgres pg_isready >/dev/null 2>&1 || { echo "postgres not reachable (docker compose)"; ok=1; }
   fi
+
   docker compose exec -T redis redis-cli PING >/dev/null 2>&1 || { echo "redis not reachable: $REDIS_URL"; ok=1; }
   [ $ok -eq 0 ] || echo "hint: docker compose up -d postgres redis  (หรือ SKIP_INTEGRATION=1 เพื่อข้าม)"
   return $ok
@@ -44,9 +60,9 @@ run "gofmt"   bash -c 'cd backend && out=$(gofmt -l .) && [ -z "$out" ] || { ech
 run "go test" bash -c '
   cd backend
   if [ -n "$NO_RACE" ]; then
-    go test ./... -count=1 -v 2>&1 | tee /tmp/gotest.log
+    go test ./... -count=1 -p 1 -v 2>&1 | tee /tmp/gotest.log
   else
-    go test ./... -race -count=1 -v 2>&1 | tee /tmp/gotest.log
+    go test ./... -race -count=1 -p 1 -v 2>&1 | tee /tmp/gotest.log
   fi
   exit "${PIPESTATUS[0]}"'
 

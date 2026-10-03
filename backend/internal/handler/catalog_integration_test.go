@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,25 +28,31 @@ var (
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
+
+	// อ่านค่า TEST_DATABASE_URL หากไม่มีให้ fallback ไปใช้ postgres:postgres
 	url := os.Getenv("TEST_DATABASE_URL")
-	if url != "" {
-		if err := db.Migrate(url, "up"); err != nil {
-			panic(err)
-		}
-		var err error
-		intTestDB, err = db.Connect(url)
-		if err != nil {
-			panic(err)
-		}
+	if url == "" {
+		url = "postgres://postgres:postgres@localhost:5432/ticket_booking_test?sslmode=disable"
 	}
+
+	if err := db.Migrate(url, "up"); err != nil {
+		panic(err)
+	}
+	var err error
+	intTestDB, err = db.Connect(url)
+	if err != nil {
+		panic(err)
+	}
+
 	redisURL := os.Getenv("REDIS_URL")
-	if redisURL != "" {
-		var err error
-		intTestRDB, err = cache.Connect(redisURL)
-		if err != nil {
-			panic(err)
-		}
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/1"
 	}
+	intTestRDB, err = cache.Connect(redisURL)
+	if err != nil {
+		panic(err)
+	}
+
 	os.Exit(m.Run())
 }
 
@@ -73,8 +80,13 @@ func setupCatalogRouter(t *testing.T, gdb *gorm.DB, rdb *redis.Client) *gin.Engi
 	return r
 }
 
+// integrationDBMu serialises TRUNCATE across parallel tests in this package (shared test DB).
+var integrationDBMu sync.Mutex
+
 func resetCatalogData(t *testing.T, gdb *gorm.DB) {
 	t.Helper()
+	integrationDBMu.Lock()
+	defer integrationDBMu.Unlock()
 	ctx := context.Background()
 	//nolint:gosec // test fixture reset
 	err := gdb.WithContext(ctx).Exec(`

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, getShowtimeSeats, type SeatItem, type ShowtimeSeatsResponse } from "@/lib/api";
+import { ApiError, createBooking, getShowtimeSeats, type SeatItem, type ShowtimeSeatsResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatBaht } from "@/lib/format";
 
 type LoadState =
@@ -13,6 +14,10 @@ type LoadState =
   | { kind: "error"; message: string };
 
 type SeatVisualStatus = SeatItem["status"] | "selected";
+
+function seatLabel(seat: SeatItem | undefined, fallback: string): string {
+  return seat ? `${seat.row_label}${seat.seat_number}` : fallback;
+}
 
 function seatClass(status: SeatVisualStatus): string {
   const base = "h-8 w-8 rounded text-xs font-medium ";
@@ -28,10 +33,37 @@ function seatClass(status: SeatVisualStatus): string {
   }
 }
 
+function bookingErrorMessage(e: unknown, seats: SeatItem[]): string {
+  if (!(e instanceof ApiError)) return "Could not reach the server. Please try again.";
+  switch (e.code) {
+    case "SEAT_UNAVAILABLE": {
+      const byId = new Map(seats.map((s) => [s.id, s]));
+      const names = e.seatIds.map((id) => seatLabel(byId.get(id), "a seat"));
+      return `Sorry, ${names.length > 0 ? `seat ${names.join(", ")} ${names.length > 1 ? "were" : "was"}` : "some seats were"} just taken. The seat map was refreshed; your other selections are kept.`;
+    }
+    case "TOO_MANY_SEATS":
+      return "You can book at most 6 seats at a time.";
+    case "SHOWTIME_NOT_ON_SALE":
+      return "This showtime is no longer on sale.";
+    case "RATE_LIMITED":
+      return "Too many booking attempts. Please wait a minute and try again.";
+    case "VALIDATION_FAILED":
+      return e.message;
+    case "UNAUTHENTICATED":
+      return "Your session expired. Please log in again.";
+    default:
+      return e.message;
+  }
+}
+
 function ShowtimeSeatsLoader({ showtimeId }: { showtimeId: string }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pollTick, setPollTick] = useState(0);
+  const { state: auth } = useAuth();
+  const router = useRouter();
+  const [booking, setBooking] = useState(false);
+  const [bookError, setBookError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +137,32 @@ function ShowtimeSeatsLoader({ showtimeId }: { showtimeId: string }) {
     });
   };
 
+  const onBook = async () => {
+    if (state.kind !== "ok" || selected.size === 0) return;
+    if (auth.status !== "authenticated") {
+      router.push(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}`)}`);
+      return;
+    }
+    setBooking(true);
+    setBookError(null);
+    try {
+      const created = await createBooking(showtimeId, [...selected]);
+      router.push(`/bookings/${created.id}`);
+    } catch (e) {
+      setBookError(bookingErrorMessage(e, state.data.seats));
+      if (e instanceof ApiError && e.code === "SEAT_UNAVAILABLE") {
+        // Drop only the taken seats from the selection, keep the rest, and refresh the map.
+        const taken = new Set(e.seatIds);
+        setSelected((prev) => new Set([...prev].filter((sid) => !taken.has(sid))));
+        setPollTick((n) => n + 1);
+      }
+      if (e instanceof ApiError && e.code === "UNAUTHENTICATED") {
+        router.push(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}`)}`);
+      }
+      setBooking(false);
+    }
+  };
+
   if (state.kind === "loading") {
     return <p className="text-gray-500">Loading seat map…</p>;
   }
@@ -169,10 +227,20 @@ function ShowtimeSeatsLoader({ showtimeId }: { showtimeId: string }) {
         <p className="font-medium">
           Selected {selected.size} seat{selected.size === 1 ? "" : "s"} · Total {formatBaht(totalSatang)}
         </p>
-        <button type="button" disabled className="rounded bg-gray-300 px-4 py-2 text-sm cursor-not-allowed">
-          Book — coming soon
+        <button
+          type="button"
+          disabled={booking || selected.size === 0 || auth.status === "loading"}
+          onClick={onBook}
+          className="rounded bg-black px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {booking ? "Booking…" : auth.status === "authenticated" ? "Book selected seats" : "Log in to book"}
         </button>
       </div>
+      {bookError && (
+        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {bookError}
+        </p>
+      )}
 
       <p className="text-xs text-gray-500">Seat map refreshes every 10 seconds while this tab is open.</p>
     </>

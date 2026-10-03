@@ -40,6 +40,11 @@ docker compose exec postgres psql -U ticket -d ticket_booking -v ON_ERROR_STOP=1
 docker compose exec postgres psql -U ticket -d ticket_booking -f /scripts/checkdb.sql                            # data invariants
 ```
 
+## Security (frontend auth)
+**Phase 3 decision (human-approved):** JWT in **localStorage** for MVP speed — explicit tradeoff vs httpOnly cookies (favors avoiding CSRF cookie complexity; accepts XSS can exfiltrate the token if script runs on this origin).
+
+Implementation: `frontend/src/lib/api.ts` (`tb_token`) sends `Authorization: Bearer` on API calls. Mitigations: strict CSP, dependency hygiene, input handling, no secrets in client bundles. Revisit httpOnly + SameSite cookies before production hardening if threat model requires it.
+
 ## Design notes
 - **PostgreSQL is the source of truth.** A partial unique index (`booking_items(seat_id) WHERE active`) makes double booking impossible; Redis `SET NX EX` is only the fast path and TTL. If Redis is down the system falls back to the database alone.
 - **Seat status** (available / held / sold) is computed from the database, so it is correct without Redis.

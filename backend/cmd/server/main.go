@@ -70,6 +70,24 @@ func main() {
 	v1.GET("/events/:id", catalogH.GetEvent)
 	v1.GET("/showtimes/:id/seats", catalogH.GetShowtimeSeats)
 
+	limiter := middleware.NewRateLimiter(rdb)
+	authSvc := service.NewAuthService(repository.NewUserRepository(gdb), cfg.JWTSecret)
+	bookingSvc := service.NewBookingService(repository.NewBookingRepository(gdb), rdb, cfg.SeatHoldTTL)
+	handler.RegisterAuthBookingRoutes(v1, handler.AuthBookingDeps{
+		Auth:         handler.NewAuthHandler(authSvc, limiter, 5),
+		Booking:      handler.NewBookingHandler(bookingSvc),
+		Verify:       authSvc.VerifyToken,
+		Limiter:      limiter,
+		BookingLimit: 10,
+	})
+
+	jobCtx, stopJob := context.WithCancel(context.Background())
+	jobDone := make(chan struct{})
+	go func() {
+		defer close(jobDone)
+		bookingSvc.RunExpiryJob(jobCtx, 30*time.Second)
+	}()
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           r,
@@ -92,6 +110,8 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+	stopJob()
+	<-jobDone
 	_ = rdb.Close()
 	_ = sqlDB.Close()
 }

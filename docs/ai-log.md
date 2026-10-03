@@ -95,7 +95,37 @@ Evidence types used: **`./scripts/check.sh`** (with default test DB URL), **curl
 
 ---
 
-## Phase 4 — Payment + Ticket (final sign-off)
+## Phase 4 — Payment + Ticket (verification & resolution log)
+
+**Date:** October 3, 2026  
+**Commit:** `f8eab09` — `feat(phase4): complete payment integration, webhooks, and ticket issuance`  
+**Final status:** **PHASE VERIFIED (PASS 100%)** — P4-00 through P4-62 (see `docs/plan.md` progress table).
+
+### 1. Overview
+
+Phase 4 added mock-gateway payments, HMAC webhooks, ticket issuance, and frontend pay/tickets/QR flows. Backend: `PaymentService`, `MockGateway`, `PaymentRepository`, handlers, and **`payment_integration_test.go`** (16 integration tests). Frontend: `/pay/[paymentId]`, `/tickets`, booking Pay + idempotency, `docs/api.md` Phase 4 section. Multiple **`/verify-phase`** runs preceded final sign-off; gaps were closed before the phase commit.
+
+### 2. Issues resolved during Phase 4 verification
+
+| Issue | How it showed up | Resolution |
+|--------|------------------|------------|
+| **Auth context stuck on `loading`** | Protected routes (e.g. bookings/pay) never left loading when no JWT; `useRequireAuth` waited indefinitely. | **`frontend/src/lib/auth.tsx`**: treat missing token as `anonymous` immediately instead of staying in `loading`. Restored NavBar login/register/logout and home redirect alongside Phase 4 routes. |
+| **`gofmt` dirty file** | `/verify-phase` P4-00 fail: `gofmt -l .` listed `payment_integration_test.go`. | Ran `gofmt -w` on handler tests; standard checks clean before final commit. |
+| **P4-13 — strict audit event order** | Verify reported incomplete proof: only partial timestamp checks, not full sequence `WEBHOOK_RECEIVED` → `PAYMENT_SUCCEEDED` → `BOOKING_PAID` → `TICKETS_ISSUED`. | Added **`paySuccessProcessingSequence`** (order by `created_at`, table, `xmin`) and **`assertP413SuccessEventOrder`** in `payment_integration_test.go`; used in `TestPayment_SuccessIssuesTickets`, retry success, and first success quadruple in duplicate-webhook test. |
+| **`docs/api.md` Phase 4 gap** | Early verify: payment/webhook/ticket endpoints not documented. | Extended **`docs/api.md`** (paths, headers, errors, events); webhook path `/payments/webhook` documented explicitly. |
+| **Pay page success UX** | After mock pay, user had to navigate to tickets manually. | **`frontend/src/app/pay/[paymentId]/page.tsx`**: poll while `PENDING`; on `SUCCEEDED`, brief message then `router.replace("/tickets")`. |
+| **NEEDS_REFUND traceability tests** | Plan P4-41 needed `raw_payload` on webhook-received rows for refund forensics. | **`assertWebhookRawPayloadStored`**; used on amount-mismatch and after-expiry tests. |
+| **Append-only / webhook 500 paths** | P4-20 and P4-42 needed explicit coverage. | **`TestPayment_WebhookInternalError500`**, **`TestPayment_EventTablesAppendOnly`**. |
+
+Other deliverables (not “fixes”): sold-seat assertions after pay, concurrent duplicate webhook race, expiry-job vs webhook race, mock gateway disabled 404, D1 pay-after-`expires_at` when items still active (`TestPayment_JustPastExpiresAtStillAccepted`).
+
+### 3. `/verify-phase` runs (October 3, 2026)
+
+| Run | Outcome | Notes |
+|-----|---------|--------|
+| Mid-phase | **PHASE NOT VERIFIED** | gofmt dirty; P4-13 order; browser P4-50–53 and human P4-62 pending. |
+| After P4-13 + gofmt | **PHASE NOT VERIFIED** | Automated backend/frontend green; browser and P4-60 log still open. |
+| Post sign-off + commit `f8eab09` | **PHASE VERIFIED** | `docker compose ps` healthy; `go vet` / `gofmt -l .` / `go test ./... -race -count=1`; frontend lint/tsc/build; curl `/healthz`, `/tickets`, unsigned webhook → `401 INVALID_SIGNATURE`. |
 
 ### Human sign-offs
 
@@ -124,19 +154,23 @@ Evidence types used: **`./scripts/check.sh`** (with default test DB URL), **curl
 
 **Low:** Refund idempotency rules (item 13) — Phase 5.
 
-### Final verification status (Phase 4)
+### 4. Final verification status (P4-00 … P4-62)
 
-**Verdict:** **PHASE VERIFIED (PASS 100%)** — 2026-10-03.
+**Verdict:** **PHASE VERIFIED (PASS 100%)** — October 3, 2026.
 
-| Area | Result | Evidence |
-|------|--------|----------|
-| P4-00 | Pass | `gofmt -l .` clean; `go vet ./...`; `go test ./... -race -count=1`; frontend lint/tsc/build |
-| P4-01–P4-20 | Pass | `payment_integration_test.go` (`TestPayment_*`); curl mock-gateway + webhook |
-| P4-30–P4-32 | Pass | `newTicketCode` 128-bit; ticket ownership tests; booking GET embeds payment/tickets |
-| P4-40–P4-43 | Pass | Outcome tests + `assertP413SuccessEventOrder`; NEEDS_REFUND raw_payload; append-only |
-| P4-50–P4-53 | Pass | Human browser (see above) |
-| P4-60 | Pass | Safety review table above — **no High** |
-| P4-61 | Pass | `docs/api.md` Phase 4 section |
-| P4-62 | Pass | Human sign-off (see above) |
+| ID / area | Result | Primary evidence |
+|-----------|--------|------------------|
+| P4-00 | Pass | `gofmt -l .` empty; `go vet ./...`; `go test ./... -race -count=1`; frontend lint/tsc/build |
+| P4-01–P4-05 | Pass | `TestPayment_CreateRules`, `TestPayment_CancelledBookingNotPayable`, ownership tests |
+| P4-10–P4-20 | Pass | 16× `TestPayment_*`; `gateway.go` HTTP webhook; curl unsigned webhook → 401 |
+| P4-13 | Pass | `assertP413SuccessEventOrder` + `paySuccessProcessingSequence` |
+| P4-30–P4-32 | Pass | `newTicketCode` (128-bit); ticket list/get; booking GET payment + tickets when PAID |
+| P4-40–P4-43 | Pass | Outcome/reason assertions; NEEDS_REFUND + `raw_payload`; append-only trigger test |
+| P4-50–P4-53 | Pass | Human browser sign-off (table above); idempotency UI + `TestPayment_CreateRules` |
+| P4-60 | Pass | Safety review — **no High-severity violations** in money/seat/webhook logic (table above) |
+| P4-61 | Pass | `docs/api.md` § Payments & tickets |
+| P4-62 | Pass | Human transaction/webhook approval (table above) |
 
-**Suggested tag:** `git tag phase-4-done` after commit `feat(phase4): complete payment integration, webhooks, and ticket issuance`.
+**Note:** Phase 4 has no Playwright script yet (unlike Phase 3 `scripts/phase3-browser-e2e.mjs`); browser criteria rely on documented human verification.
+
+**Suggested tag:** `git tag phase-4-done` on `f8eab09` (or after this doc commit).

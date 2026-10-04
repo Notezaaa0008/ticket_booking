@@ -41,26 +41,76 @@ export function hasAuthToken(): boolean {
 
 export function setToken(token: string | null): void {
   if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
-  window.dispatchEvent(new Event(AUTH_TOKEN_EVENT));
+  try {
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+    window.dispatchEvent(new Event(AUTH_TOKEN_EVENT));
+  } catch (e) {
+    console.error("auth: could not update the stored session", e);
+    throw e;
+  }
+}
+
+/** Confirms the token has a JSON payload. The server, not this parse, decides who the user is. */
+export function assertJwtShape(token: string): void {
+  const parts = token.split(".");
+  if (parts.length < 2 || !parts[1]) {
+    throw new Error("token is missing a payload");
+  }
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const json = atob(padded);
+    const payload: unknown = JSON.parse(json);
+    if (!payload || typeof payload !== "object") {
+      throw new Error("token payload is empty");
+    }
+  } catch (e) {
+    console.error("auth: could not parse token payload", e);
+    throw e instanceof Error ? e : new Error("token payload is not valid JSON");
+  }
 }
 
 type FetchInit = Omit<RequestInit, "headers"> & { headers?: Record<string, string> };
 
+const REQUEST_TIMEOUT_MS = 20000;
+
 /** Calls the backend. Throws ApiError built from the standard {"error":{"code","message"}} body. */
 export async function apiFetch<T>(path: string, init: FetchInit = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      console.error("api: request timed out", path);
+      throw new ApiError(0, "TIMEOUT", "The request timed out. Please try again.");
+    }
+    console.error("api: request failed", path, e);
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await res.text();
-  const data: unknown = text ? JSON.parse(text) : null;
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("api: response was not JSON", path, e);
+      throw new ApiError(res.status, "UNKNOWN", "The server returned an unreadable response.");
+    }
+  }
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string; seat_ids?: string[] } } | null)?.error;
     throw new ApiError(res.status, err?.code ?? "UNKNOWN", err?.message ?? res.statusText, err?.seat_ids ?? []);
@@ -175,7 +225,11 @@ export function login(email: string, password: string): Promise<{ token: string;
 }
 
 export async function getMe(): Promise<User> {
-  return (await apiFetch<{ user: User }>("/api/v1/me")).user;
+  const data = await apiFetch<{ user?: User }>("/api/v1/me");
+  if (!data?.user || typeof data.user.id !== "string" || typeof data.user.role !== "string") {
+    throw new ApiError(500, "UNKNOWN", "Profile response was invalid.");
+  }
+  return data.user;
 }
 
 // ---------- bookings ----------

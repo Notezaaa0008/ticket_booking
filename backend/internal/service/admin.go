@@ -175,6 +175,9 @@ func applyEventInput(e *repository.AdminEventRow, in EventInput) error {
 	}
 	if in.Status != nil {
 		e.Status = *in.Status
+		if e.Status == "cancelled" {
+			e.Status = "archived" // events CHECK allows archived, not cancelled
+		}
 	}
 	switch {
 	case e.Title == "" || len(e.Title) > 200:
@@ -206,7 +209,7 @@ func (s *AdminService) CreateEvent(ctx context.Context, in EventInput) (*AdminEv
 	return eventView(row), nil
 }
 
-func (s *AdminService) UpdateEvent(ctx context.Context, id string, in EventInput) (*AdminEventView, error) {
+func (s *AdminService) UpdateEvent(ctx context.Context, adminID, id string, in EventInput) (*AdminEventView, error) {
 	ctx, cancel := context.WithTimeout(ctx, adminOpTimeout)
 	defer cancel()
 	id, err := parseID(id, "event")
@@ -214,6 +217,7 @@ func (s *AdminService) UpdateEvent(ctx context.Context, id string, in EventInput
 		return nil, err
 	}
 	var out *repository.AdminEventRow
+	var releases []holdRelease
 	err = s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		e, err := s.repo.LockEvent(ctx, tx, id)
 		if err != nil {
@@ -222,8 +226,14 @@ func (s *AdminService) UpdateEvent(ctx context.Context, id string, in EventInput
 		if e == nil {
 			return notFound("event")
 		}
+		prev := e.Status
 		if err := applyEventInput(e, in); err != nil {
 			return err
+		}
+		if e.Status == "archived" && prev != "archived" {
+			if err := s.cancelEventShowtimes(ctx, tx, id, adminID, &releases); err != nil {
+				return err
+			}
 		}
 		out, err = s.repo.UpdateEvent(ctx, tx, *e)
 		return err
@@ -231,12 +241,13 @@ func (s *AdminService) UpdateEvent(ctx context.Context, id string, in EventInput
 	if err != nil {
 		return nil, err
 	}
+	s.releaseAfterCommit(releases)
 	s.invalidateEventsCache(ctx)
 	return eventView(out), nil
 }
 
 // DeleteEvent hard-deletes an event without showtimes; otherwise it archives it. Returns "deleted" or "archived".
-func (s *AdminService) DeleteEvent(ctx context.Context, id string) (string, error) {
+func (s *AdminService) DeleteEvent(ctx context.Context, adminID, id string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, adminOpTimeout)
 	defer cancel()
 	id, err := parseID(id, "event")
@@ -244,6 +255,7 @@ func (s *AdminService) DeleteEvent(ctx context.Context, id string) (string, erro
 		return "", err
 	}
 	result := ""
+	var releases []holdRelease
 	err = s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		e, err := s.repo.LockEvent(ctx, tx, id)
 		if err != nil {
@@ -261,6 +273,11 @@ func (s *AdminService) DeleteEvent(ctx context.Context, id string) (string, erro
 			return s.repo.DeleteEvent(ctx, tx, id)
 		}
 		result = "archived"
+		if e.Status != "archived" {
+			if err := s.cancelEventShowtimes(ctx, tx, id, adminID, &releases); err != nil {
+				return err
+			}
+		}
 		e.Status = "archived"
 		_, err = s.repo.UpdateEvent(ctx, tx, *e)
 		return err
@@ -268,6 +285,7 @@ func (s *AdminService) DeleteEvent(ctx context.Context, id string) (string, erro
 	if err != nil {
 		return "", err
 	}
+	s.releaseAfterCommit(releases)
 	s.invalidateEventsCache(ctx)
 	return result, nil
 }
@@ -363,7 +381,7 @@ type ShowtimeUpdate struct {
 
 // UpdateShowtime changes status, starts_at and/or row prices. Showtimes are never deleted (D5);
 // new prices apply to future bookings only because booking_items store their own price.
-func (s *AdminService) UpdateShowtime(ctx context.Context, id string, in ShowtimeUpdate) (*AdminShowtimeView, error) {
+func (s *AdminService) UpdateShowtime(ctx context.Context, adminID, id string, in ShowtimeUpdate) (*AdminShowtimeView, error) {
 	ctx, cancel := context.WithTimeout(ctx, adminOpTimeout)
 	defer cancel()
 	id, err := parseID(id, "showtime")
@@ -377,6 +395,7 @@ func (s *AdminService) UpdateShowtime(ctx context.Context, id string, in Showtim
 		return nil, validationErr("starts_at is invalid")
 	}
 	var st *repository.AdminShowtimeRow
+	var releases []holdRelease
 	err = s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		ok, err := s.repo.LockShowtime(ctx, tx, id)
 		if err != nil {
@@ -396,8 +415,18 @@ func (s *AdminService) UpdateShowtime(ctx context.Context, id string, in Showtim
 		if in.StartsAt != nil {
 			startsAt = in.StartsAt.UTC()
 		}
+		if status == "closed" || status == "cancelled" {
+			if err := s.rejectCheckedIn(ctx, tx, "", id, false); err != nil {
+				return err
+			}
+		}
 		if err := s.repo.UpdateShowtime(ctx, tx, id, status, startsAt); err != nil {
 			return err
+		}
+		if status == "closed" || status == "cancelled" {
+			if err := s.cascadeShowtimeBookings(ctx, tx, id, domain.ReasonShowtimeCancelled, adminID, &releases); err != nil {
+				return err
+			}
 		}
 		for row, p := range in.PriceSatangByRow {
 			if p < 0 {
@@ -417,6 +446,7 @@ func (s *AdminService) UpdateShowtime(ctx context.Context, id string, in Showtim
 	if err != nil {
 		return nil, err
 	}
+	s.releaseAfterCommit(releases)
 	s.invalidateEventsCache(ctx)
 	v := showtimeView(*st)
 	return &v, nil

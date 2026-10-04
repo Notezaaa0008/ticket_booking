@@ -319,13 +319,18 @@ func (s *BookingService) acquireHolds(ctx context.Context, bookingID string, sea
 // releaseHolds deletes only the keys still owned by bookingID (compare-and-delete).
 // Errors are logged: an unreleased key simply expires with its TTL.
 func (s *BookingService) releaseHolds(seatIDs []string, bookingID string) {
-	if s.rdb == nil || len(seatIDs) == 0 {
+	releaseOwnedHolds(s.rdb, bookingID, seatIDs)
+}
+
+// releaseOwnedHolds deletes hold:{seat} only when bookingID still owns the key.
+func releaseOwnedHolds(rdb *redis.Client, bookingID string, seatIDs []string) {
+	if rdb == nil || len(seatIDs) == 0 {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for _, id := range seatIDs {
-		if err := releaseScript.Run(ctx, s.rdb, []string{holdKey(id)}, bookingID).Err(); err != nil {
+		if err := releaseScript.Run(ctx, rdb, []string{holdKey(id)}, bookingID).Err(); err != nil {
 			log.Printf("warning: release hold %s failed (will expire by TTL): %v", id, err)
 		}
 	}

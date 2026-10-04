@@ -5,12 +5,13 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
+  // Ignore build output at any depth. A top-level ".next/**" misses nested folders such as frontend/.next.
   globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
+    "**/.next/**",
+    "**/out/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
     "next-env.d.ts",
   ]),
 ]);

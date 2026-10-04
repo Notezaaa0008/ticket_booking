@@ -40,7 +40,9 @@ export default function RegisterPage() {
       const next = new URLSearchParams(window.location.search).get("next");
       router.replace(postLoginRedirect(user, next));
     } catch (e) {
+      console.error("register failed", e);
       setError(registerMessage(e));
+    } finally {
       setBusy(false);
     }
   };

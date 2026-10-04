@@ -156,6 +156,103 @@ func (r *AdminRepository) UpdateShowtime(ctx context.Context, tx *gorm.DB, id, s
 	return tx.WithContext(ctx).Exec(`UPDATE showtimes SET status = ?, starts_at = ? WHERE id = ?`, status, startsAt, id).Error
 }
 
+func (r *AdminRepository) SetShowtimeStatus(ctx context.Context, tx *gorm.DB, id, status string) error {
+	return tx.WithContext(ctx).Exec(`UPDATE showtimes SET status = ? WHERE id = ?`, status, id).Error
+}
+
+// LockEventShowtimesForCancel locks showtimes that are still on sale, or not yet started.
+// Already-cancelled rows are skipped. Past closed showtimes are left as-is.
+func (r *AdminRepository) LockEventShowtimesForCancel(ctx context.Context, tx *gorm.DB, eventID string) ([]string, error) {
+	var rows []struct {
+		ID string `gorm:"column:id"`
+	}
+	err := tx.WithContext(ctx).Raw(`SELECT id FROM showtimes
+		 WHERE event_id = ?
+		   AND status <> 'cancelled'
+		   AND (status = 'on_sale' OR starts_at > now())
+		 ORDER BY id
+		 FOR UPDATE`, eventID).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	return ids, nil
+}
+
+// CascadePayment is a SUCCEEDED payment locked for a showtime cancellation.
+type CascadePayment struct {
+	ID           string `gorm:"column:id"`
+	BookingID    string `gorm:"column:booking_id"`
+	ProviderRef  string `gorm:"column:provider_ref"`
+	AmountSatang int64  `gorm:"column:amount_satang"`
+}
+
+// LockSucceededPayments locks SUCCEEDED payments of PAID bookings on a showtime, payment id order,
+// before bookings are locked (same payment-then-booking order as refund processing).
+func (r *AdminRepository) LockSucceededPayments(ctx context.Context, tx *gorm.DB, showtimeID string) ([]CascadePayment, error) {
+	var rows []CascadePayment
+	err := tx.WithContext(ctx).Raw(`SELECT p.id, p.booking_id, p.provider_ref, p.amount_satang
+		FROM payments p
+		JOIN bookings b ON b.id = p.booking_id
+		WHERE b.showtime_id = ? AND b.status = 'PAID' AND p.status = 'SUCCEEDED'
+		ORDER BY p.id
+		FOR UPDATE OF p`, showtimeID).Scan(&rows).Error
+	return rows, err
+}
+
+// CascadeBooking is a PENDING or PAID booking locked for cancellation.
+type CascadeBooking struct {
+	ID         string `gorm:"column:id"`
+	UserID     string `gorm:"column:user_id"`
+	ShowtimeID string `gorm:"column:showtime_id"`
+	Status     string `gorm:"column:status"`
+}
+
+// HasCheckedInTicket locks the showtime or event tickets and reports whether any is already used.
+// status USED or a non-null checked_in_at both count. The lock blocks a check-in until this transaction ends.
+func (r *AdminRepository) HasCheckedInTicket(ctx context.Context, tx *gorm.DB, eventID, showtimeID string) (bool, error) {
+	var rows []struct {
+		Status      string     `gorm:"column:status"`
+		CheckedInAt *time.Time `gorm:"column:checked_in_at"`
+	}
+	q := `SELECT t.status, t.checked_in_at
+		FROM tickets t
+		JOIN booking_items bi ON bi.id = t.booking_item_id
+		JOIN bookings b ON b.id = bi.booking_id
+		JOIN showtimes st ON st.id = b.showtime_id
+		WHERE `
+	var arg string
+	if showtimeID != "" {
+		q += `b.showtime_id = ?`
+		arg = showtimeID
+	} else {
+		q += `st.event_id = ?`
+		arg = eventID
+	}
+	err := tx.WithContext(ctx).Raw(q+` ORDER BY t.id FOR UPDATE OF t`, arg).Scan(&rows).Error
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.Status == "USED" || row.CheckedInAt != nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *AdminRepository) LockOpenBookings(ctx context.Context, tx *gorm.DB, showtimeID string) ([]CascadeBooking, error) {
+	var rows []CascadeBooking
+	err := tx.WithContext(ctx).Raw(`SELECT id, user_id, showtime_id, status FROM bookings
+		WHERE showtime_id = ? AND status IN ('PENDING','PAID')
+		ORDER BY id
+		FOR UPDATE`, showtimeID).Scan(&rows).Error
+	return rows, err
+}
+
 // SetRowPrice changes the seat price for future bookings; existing booking_items keep their own price.
 func (r *AdminRepository) SetRowPrice(ctx context.Context, tx *gorm.DB, showtimeID, rowLabel string, price int64) (int64, error) {
 	res := tx.WithContext(ctx).Exec(`UPDATE seats SET price_satang = ? WHERE showtime_id = ? AND row_label = ?`, price, showtimeID, rowLabel)

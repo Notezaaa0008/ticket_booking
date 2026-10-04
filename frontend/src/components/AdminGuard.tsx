@@ -65,6 +65,8 @@ const MESSAGES: Record<string, string> = {
   AMOUNT_EXCEEDS_PAYMENT: "The refund would exceed the payment amount.",
   PROVIDER_FAILED: "The refund provider failed. Request a new refund to retry.",
   TICKET_VOID: "This ticket is void (refunded or its booking is not paid).",
+  CANNOT_CANCEL_USED_SHOWTIME: "Cannot cancel this showtime because a ticket has already been checked in.",
+  CANNOT_CANCEL_USED_EVENT: "Cannot cancel this event because a ticket has already been checked in.",
   NOT_FOUND: "Not found.",
   VALIDATION_FAILED: "The input is invalid.",
   FORBIDDEN: "Admin access required.",

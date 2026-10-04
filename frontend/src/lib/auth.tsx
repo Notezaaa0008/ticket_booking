@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { flushSync } from "react-dom";
 import {
   createContext,
   useCallback,
@@ -13,6 +14,7 @@ import {
 } from "react";
 import {
   ApiError,
+  assertJwtShape,
   getMe,
   hasAuthToken,
   login as apiLogin,
@@ -69,8 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const me = await getMe();
         if (!cancelled) setUser(me);
       } catch (e) {
+        if (cancelled) return;
+        console.error("auth: could not load the current user", e);
         if (e instanceof ApiError && e.status === 401) setToken(null);
-        if (!cancelled) setUser(null);
+        setUser(null);
       }
     })();
     return () => {
@@ -80,8 +84,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await apiLogin(email, password);
-    setToken(res.token);
-    setUser(res.user);
+    if (!res || typeof res.token !== "string" || !res.user?.id || !res.user.role) {
+      console.error("login: unexpected response", res);
+      throw new ApiError(500, "UNKNOWN", "Login response was missing a token or user.");
+    }
+    try {
+      assertJwtShape(res.token);
+    } catch {
+      throw new ApiError(500, "UNKNOWN", "Login response contained an invalid token.");
+    }
+    try {
+      flushSync(() => setUser(res.user));
+      setToken(res.token);
+    } catch (e) {
+      console.error("login: failed to store the session", e);
+      setUser(null);
+      try {
+        setToken(null);
+      } catch (clearErr) {
+        console.error("login: failed to clear a partial session", clearErr);
+      }
+      throw e;
+    }
     return res.user;
   }, []);
 
@@ -129,7 +153,8 @@ export function resolveRootRedirect(state: AuthState): string | null {
 /** Honors explicit `next` when safe; otherwise sends admins to /admin and users to /events. */
 export function postLoginRedirect(user: User, nextParam: string | null): string {
   if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) {
-    return nextParam;
+    const path = nextParam.split("?")[0];
+    if (path !== "/login" && path !== "/register") return nextParam;
   }
   return defaultHomeForUser(user);
 }
@@ -138,12 +163,14 @@ export function postLoginRedirect(user: User, nextParam: string | null): string 
 export function useRequireAuth(): AuthState {
   const { state } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (state.status !== "anonymous") return;
-    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    if (pathname === "/login" || pathname === "/register") return;
+    const next = encodeURIComponent(pathname + window.location.search);
     router.replace(`/login?next=${next}`);
-  }, [state.status, router]);
+  }, [state.status, router, pathname]);
 
   return state;
 }

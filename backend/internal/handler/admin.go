@@ -88,12 +88,12 @@ func (h *AdminHandler) UpdateEvent(c *gin.Context) {
 	if !bindJSON(c, &in) {
 		return
 	}
-	v, err := h.svc.UpdateEvent(reqCtx(c), c.Param("id"), in)
+	v, err := h.svc.UpdateEvent(reqCtx(c), c.GetString(middleware.CtxUserID), c.Param("id"), in)
 	respond(c, http.StatusOK, v, err)
 }
 
 func (h *AdminHandler) DeleteEvent(c *gin.Context) {
-	res, err := h.svc.DeleteEvent(reqCtx(c), c.Param("id"))
+	res, err := h.svc.DeleteEvent(reqCtx(c), c.GetString(middleware.CtxUserID), c.Param("id"))
 	respond(c, http.StatusOK, gin.H{"result": res}, err)
 }
 
@@ -111,7 +111,7 @@ func (h *AdminHandler) UpdateShowtime(c *gin.Context) {
 	if !bindJSON(c, &in) {
 		return
 	}
-	v, err := h.svc.UpdateShowtime(reqCtx(c), c.Param("id"), in)
+	v, err := h.svc.UpdateShowtime(reqCtx(c), c.GetString(middleware.CtxUserID), c.Param("id"), in)
 	respond(c, http.StatusOK, v, err)
 }
 

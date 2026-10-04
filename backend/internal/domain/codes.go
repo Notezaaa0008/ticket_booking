@@ -106,6 +106,7 @@ const (
 	EvPaymentDuplicateIgnore PaymentEventType = "PAYMENT_DUPLICATE_IGNORED"
 	EvPaymentAmountMismatch  PaymentEventType = "PAYMENT_AMOUNT_MISMATCH"
 	EvPaymentAfterExpiry     PaymentEventType = "PAYMENT_AFTER_EXPIRY"
+	EvPaymentNeedsRefund     PaymentEventType = "PAYMENT_NEEDS_REFUND"
 	EvRefundRequested        PaymentEventType = "REFUND_REQUESTED"
 	EvRefundCompleted        PaymentEventType = "REFUND_COMPLETED"
 	EvRefundFailed           PaymentEventType = "REFUND_FAILED"
@@ -115,7 +116,7 @@ const (
 var AllPaymentEventTypes = []PaymentEventType{
 	EvPaymentCreated, EvPaymentCreateFailed, EvWebhookReceived, EvWebhookRejected,
 	EvPaymentSucceeded, EvPaymentFailed, EvPaymentDuplicateIgnore, EvPaymentAmountMismatch,
-	EvPaymentAfterExpiry, EvRefundRequested, EvRefundCompleted, EvRefundFailed, EvRefundRejected,
+	EvPaymentAfterExpiry, EvPaymentNeedsRefund, EvRefundRequested, EvRefundCompleted, EvRefundFailed, EvRefundRejected,
 }
 
 func (t PaymentEventType) Valid() bool { return contains(AllPaymentEventTypes, t) }
@@ -147,11 +148,15 @@ const (
 	ReasonGatewayDeclined   ReasonCode = "GATEWAY_DECLINED"
 	ReasonDuplicateEvent    ReasonCode = "DUPLICATE_EVENT"
 	// refund
-	ReasonRefundNotEligible   ReasonCode = "REFUND_NOT_ELIGIBLE"
-	ReasonTicketAlreadyUsed   ReasonCode = "TICKET_ALREADY_USED"
-	ReasonRefundAlreadyExists ReasonCode = "REFUND_ALREADY_EXISTS"
-	ReasonProviderFailed      ReasonCode = "PROVIDER_FAILED"
-	ReasonAmountExceeds       ReasonCode = "AMOUNT_EXCEEDS_PAYMENT"
+	ReasonRefundNotEligible        ReasonCode = "REFUND_NOT_ELIGIBLE"
+	ReasonTicketAlreadyUsed        ReasonCode = "TICKET_ALREADY_USED"
+	ReasonRefundAlreadyExists      ReasonCode = "REFUND_ALREADY_EXISTS"
+	ReasonProviderFailed           ReasonCode = "PROVIDER_FAILED"
+	ReasonAmountExceeds            ReasonCode = "AMOUNT_EXCEEDS_PAYMENT"
+	ReasonShowtimeCancelled        ReasonCode = "SHOWTIME_CANCELLED"
+	ReasonEventCancelled           ReasonCode = "EVENT_CANCELLED"
+	ReasonCannotCancelUsedShowtime ReasonCode = "CANNOT_CANCEL_USED_SHOWTIME"
+	ReasonCannotCancelUsedEvent    ReasonCode = "CANNOT_CANCEL_USED_EVENT"
 	// check-in
 	ReasonTicketVoid ReasonCode = "TICKET_VOID"
 	// API-only codes (returned to clients, not used as audit reasons)
@@ -166,39 +171,43 @@ const (
 
 // httpStatus maps every ReasonCode to its HTTP status. A test enforces that no code is missing.
 var httpStatus = map[ReasonCode]int{
-	ReasonSeatUnavailable:     http.StatusConflict,
-	ReasonSeatNotInShowtime:   http.StatusBadRequest,
-	ReasonShowtimeNotOnSale:   http.StatusUnprocessableEntity,
-	ReasonTooManySeats:        http.StatusUnprocessableEntity,
-	ReasonValidationFailed:    http.StatusBadRequest,
-	ReasonHoldExpired:         http.StatusConflict,
-	ReasonUserCancelled:       http.StatusConflict,
-	ReasonBookingNotPending:   http.StatusConflict,
-	ReasonBookingNotFound:     http.StatusNotFound,
-	ReasonRedisFallbackUsed:   http.StatusInternalServerError, // informational, never returned
-	ReasonInternalError:       http.StatusInternalServerError,
-	ReasonInvalidSignature:    http.StatusUnauthorized,
-	ReasonMalformedPayload:    http.StatusBadRequest,
-	ReasonUnknownPayment:      http.StatusNotFound,
-	ReasonBookingNotPayable:   http.StatusConflict,
-	ReasonBookingExpired:      http.StatusConflict,
-	ReasonSeatLost:            http.StatusConflict,
-	ReasonAmountMismatch:      http.StatusUnprocessableEntity,
-	ReasonGatewayDeclined:     http.StatusUnprocessableEntity,
-	ReasonDuplicateEvent:      http.StatusConflict,
-	ReasonRefundNotEligible:   http.StatusUnprocessableEntity,
-	ReasonTicketAlreadyUsed:   http.StatusUnprocessableEntity,
-	ReasonRefundAlreadyExists: http.StatusConflict,
-	ReasonProviderFailed:      http.StatusBadGateway,
-	ReasonAmountExceeds:       http.StatusUnprocessableEntity,
-	ReasonTicketVoid:          http.StatusUnprocessableEntity,
-	ReasonUnauthenticated:     http.StatusUnauthorized,
-	ReasonForbidden:           http.StatusForbidden,
-	ReasonNotFound:            http.StatusNotFound,
-	ReasonRateLimited:         http.StatusTooManyRequests,
-	ReasonEmailTaken:          http.StatusConflict,
-	ReasonInvalidCredentials:  http.StatusUnauthorized,
-	ReasonIdempotencyRequired: http.StatusBadRequest,
+	ReasonSeatUnavailable:          http.StatusConflict,
+	ReasonSeatNotInShowtime:        http.StatusBadRequest,
+	ReasonShowtimeNotOnSale:        http.StatusUnprocessableEntity,
+	ReasonTooManySeats:             http.StatusUnprocessableEntity,
+	ReasonValidationFailed:         http.StatusBadRequest,
+	ReasonHoldExpired:              http.StatusConflict,
+	ReasonUserCancelled:            http.StatusConflict,
+	ReasonBookingNotPending:        http.StatusConflict,
+	ReasonBookingNotFound:          http.StatusNotFound,
+	ReasonRedisFallbackUsed:        http.StatusInternalServerError, // informational, never returned
+	ReasonInternalError:            http.StatusInternalServerError,
+	ReasonInvalidSignature:         http.StatusUnauthorized,
+	ReasonMalformedPayload:         http.StatusBadRequest,
+	ReasonUnknownPayment:           http.StatusNotFound,
+	ReasonBookingNotPayable:        http.StatusConflict,
+	ReasonBookingExpired:           http.StatusConflict,
+	ReasonSeatLost:                 http.StatusConflict,
+	ReasonAmountMismatch:           http.StatusUnprocessableEntity,
+	ReasonGatewayDeclined:          http.StatusUnprocessableEntity,
+	ReasonDuplicateEvent:           http.StatusConflict,
+	ReasonRefundNotEligible:        http.StatusUnprocessableEntity,
+	ReasonTicketAlreadyUsed:        http.StatusUnprocessableEntity,
+	ReasonRefundAlreadyExists:      http.StatusConflict,
+	ReasonProviderFailed:           http.StatusBadGateway,
+	ReasonAmountExceeds:            http.StatusUnprocessableEntity,
+	ReasonShowtimeCancelled:        http.StatusConflict,
+	ReasonEventCancelled:           http.StatusConflict,
+	ReasonCannotCancelUsedShowtime: http.StatusConflict,
+	ReasonCannotCancelUsedEvent:    http.StatusConflict,
+	ReasonTicketVoid:               http.StatusUnprocessableEntity,
+	ReasonUnauthenticated:          http.StatusUnauthorized,
+	ReasonForbidden:                http.StatusForbidden,
+	ReasonNotFound:                 http.StatusNotFound,
+	ReasonRateLimited:              http.StatusTooManyRequests,
+	ReasonEmailTaken:               http.StatusConflict,
+	ReasonInvalidCredentials:       http.StatusUnauthorized,
+	ReasonIdempotencyRequired:      http.StatusBadRequest,
 }
 
 var AllReasonCodes = func() []ReasonCode {

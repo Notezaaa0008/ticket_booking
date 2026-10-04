@@ -16,6 +16,8 @@ function loginMessage(e: unknown): string {
         return "Too many login attempts. Please wait a minute and try again.";
       case "VALIDATION_FAILED":
         return e.message;
+      case "TIMEOUT":
+        return "The server took too long to respond. Please try again.";
     }
     return e.message;
   }
@@ -39,7 +41,9 @@ export default function LoginPage() {
       const next = new URLSearchParams(window.location.search).get("next");
       router.replace(postLoginRedirect(user, next));
     } catch (e) {
+      console.error("login failed", e);
       setError(loginMessage(e));
+    } finally {
       setBusy(false);
     }
   };
@@ -59,7 +63,7 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </Field>
-        {error && <Alert variant="error">{error}</Alert>}
+        {error ? <Alert variant="error">{error}</Alert> : null}
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Logging in…" : "Log in"}
         </Button>

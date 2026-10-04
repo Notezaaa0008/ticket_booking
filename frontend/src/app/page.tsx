@@ -12,7 +12,9 @@ export default function Home() {
 
   useEffect(() => {
     const target = resolveRootRedirect(state);
-    if (target) router.replace(target);
+    if (target) {
+      router.replace(target);
+    }
   }, [state, router]);
 
   return (

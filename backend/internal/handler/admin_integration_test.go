@@ -708,12 +708,17 @@ func TestAdmin_ShowtimeUpdateWithPaidAndPendingBookings(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, m)
 	assert.Equal(t, "closed", str(m, "status"))
 
-	assert.Equal(t, "PAID", env.status(t, "bookings", paidBid))
-	assert.Equal(t, "PENDING", env.status(t, "bookings", pendBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", paidBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", pendBid))
+	assert.Equal(t, "NEEDS_REFUND", env.status(t, "payments", pid))
+	var failure string
+	require.NoError(t, env.gdb.Raw(`SELECT failure_code FROM payments WHERE id = ?`, pid).Scan(&failure).Error)
+	assert.Equal(t, "SHOWTIME_CANCELLED", failure)
 	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, paidBid))
-	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, pendBid))
+	assert.EqualValues(t, 0, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, pendBid))
 	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets t JOIN booking_items bi ON bi.id = t.booking_item_id
-		WHERE bi.booking_id = ? AND t.status = 'VALID'`, paidBid))
+		WHERE bi.booking_id = ? AND t.status = 'VOID'`, paidBid))
+	assert.False(t, env.holdExists(t, seats[1]))
 
 	code, _ = env.do(http.MethodPut, "/api/v1/admin/showtimes/"+showID, env.adminTok, map[string]any{"status": "deleted"})
 	assert.Equal(t, http.StatusBadRequest, code)
@@ -721,8 +726,9 @@ func TestAdmin_ShowtimeUpdateWithPaidAndPendingBookings(t *testing.T) {
 	code, m = env.do(http.MethodPut, "/api/v1/admin/showtimes/"+showID, env.adminTok, map[string]any{"status": "cancelled"})
 	require.Equal(t, http.StatusOK, code, m)
 	assert.Equal(t, "cancelled", str(m, "status"))
-	assert.Equal(t, "PAID", env.status(t, "bookings", paidBid))
-	assert.Equal(t, "PENDING", env.status(t, "bookings", pendBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", paidBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", pendBid))
+	assert.EqualValues(t, 2, env.count(t, `SELECT COUNT(*) FROM booking_events WHERE event_type = 'BOOKING_CANCELLED' AND showtime_id = ?`, showID))
 }
 
 func TestAdmin_RefundFlowEventsAppendOnly(t *testing.T) {
@@ -756,4 +762,213 @@ func TestAdmin_RefundFlowEventsAppendOnly(t *testing.T) {
 	err = env.gdb.Exec(`DELETE FROM booking_events WHERE id = ?`, bookEvID).Error
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "append-only")
+}
+
+func TestAdmin_ShowtimeCancelCascadesPaidAndPendingThenRefund(t *testing.T) {
+	env := newAdminEnv(t)
+	starts := time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339)
+	code, ev := env.do(http.MethodPost, "/api/v1/admin/events", env.adminTok, map[string]any{"title": "Cancel Show", "venue": "Hall"})
+	require.Equal(t, http.StatusCreated, code, ev)
+	eventID := str(ev, "id")
+	code, st := env.do(http.MethodPost, "/api/v1/admin/events/"+eventID+"/showtimes", env.adminTok, map[string]any{
+		"starts_at": starts, "rows": 1, "seats_per_row": 4, "price_satang": 15000,
+	})
+	require.Equal(t, http.StatusCreated, code, st)
+	showID := str(st, "id")
+	var seats []string
+	require.NoError(t, env.gdb.Raw(
+		`SELECT id FROM seats WHERE showtime_id = ? ORDER BY seat_number LIMIT 2`, showID).Scan(&seats).Error)
+	require.Len(t, seats, 2)
+
+	_, tokPaid := env.newUser(t, "cascade-paid@test.local", "user")
+	code, bPaid := env.book(tokPaid, showID, seats[0])
+	require.Equal(t, http.StatusCreated, code, bPaid)
+	paidBid := str(bPaid, "id")
+	code, pPaid := env.createPayment(tokPaid, paidBid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, pPaid)
+	pid := str(pPaid, "id")
+	code, m := env.signedWebhook(successBody(t, pid, env.amount(t, pid)))
+	require.Equal(t, http.StatusOK, code, m)
+
+	_, tokPend := env.newUser(t, "cascade-pend@test.local", "user")
+	code, bPend := env.book(tokPend, showID, seats[1])
+	require.Equal(t, http.StatusCreated, code, bPend)
+	pendBid := str(bPend, "id")
+	require.True(t, env.holdExists(t, seats[1]))
+
+	code, m = env.do(http.MethodPut, "/api/v1/admin/showtimes/"+showID, env.adminTok, map[string]any{"status": "cancelled"})
+	require.Equal(t, http.StatusOK, code, m)
+	assert.Equal(t, "cancelled", str(m, "status"))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", paidBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", pendBid))
+	assert.Equal(t, "NEEDS_REFUND", env.status(t, "payments", pid))
+	assert.EqualValues(t, 0, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, pendBid))
+	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets t JOIN booking_items bi ON bi.id = t.booking_item_id
+		WHERE bi.booking_id = ? AND t.status = 'VOID'`, paidBid))
+	assert.False(t, env.holdExists(t, seats[1]))
+	assert.Equal(t, "SHOWTIME_CANCELLED", env.lastPayEvent(t, pid, "PAYMENT_NEEDS_REFUND").ReasonCode)
+	evs := env.events(t, `booking_id = ? AND event_type = 'BOOKING_CANCELLED'`, paidBid)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "SUCCESS", evs[0].Outcome)
+	assert.Equal(t, "SHOWTIME_CANCELLED", evs[0].ReasonCode)
+
+	code, list := env.do(http.MethodGet, "/api/v1/admin/payments?status=NEEDS_REFUND", env.adminTok, nil)
+	require.Equal(t, http.StatusOK, code, list)
+	items, _ := list["items"].([]any)
+	require.NotEmpty(t, items)
+	assert.Equal(t, pid, str(items[0].(map[string]any), "id"))
+	assert.Equal(t, "SHOWTIME_CANCELLED", str(items[0].(map[string]any), "failure_code"))
+
+	code, r := env.requestRefund(pid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, r)
+	code, done := env.process(str(r, "id"))
+	require.Equal(t, http.StatusOK, code, done)
+	assert.Equal(t, "COMPLETED", str(done, "status"))
+	assert.Equal(t, "REFUNDED", env.status(t, "payments", pid))
+	assert.EqualValues(t, 0, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, paidBid))
+}
+
+func TestAdmin_EventArchiveCascadesFutureShowtimesThenRefund(t *testing.T) {
+	env := newAdminEnv(t)
+	starts := time.Now().Add(96 * time.Hour).UTC().Format(time.RFC3339)
+	code, ev := env.do(http.MethodPost, "/api/v1/admin/events", env.adminTok, map[string]any{"title": "Cancel Event", "venue": "Hall"})
+	require.Equal(t, http.StatusCreated, code, ev)
+	eventID := str(ev, "id")
+	code, st := env.do(http.MethodPost, "/api/v1/admin/events/"+eventID+"/showtimes", env.adminTok, map[string]any{
+		"starts_at": starts, "rows": 1, "seats_per_row": 4, "price_satang": 12000,
+	})
+	require.Equal(t, http.StatusCreated, code, st)
+	futureID := str(st, "id")
+	code, past := env.do(http.MethodPost, "/api/v1/admin/events/"+eventID+"/showtimes", env.adminTok, map[string]any{
+		"starts_at": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339), "rows": 1, "seats_per_row": 2, "price_satang": 8000,
+	})
+	require.Equal(t, http.StatusCreated, code, past)
+	pastID := str(past, "id")
+
+	var futureSeats, pastSeats []string
+	require.NoError(t, env.gdb.Raw(`SELECT id FROM seats WHERE showtime_id = ? ORDER BY seat_number LIMIT 2`, futureID).Scan(&futureSeats).Error)
+	require.NoError(t, env.gdb.Raw(`SELECT id FROM seats WHERE showtime_id = ? ORDER BY seat_number LIMIT 1`, pastID).Scan(&pastSeats).Error)
+	require.Len(t, futureSeats, 2)
+	require.Len(t, pastSeats, 1)
+
+	_, tokPaid := env.newUser(t, "event-paid@test.local", "user")
+	code, bPaid := env.book(tokPaid, futureID, futureSeats[0])
+	require.Equal(t, http.StatusCreated, code, bPaid)
+	paidBid := str(bPaid, "id")
+	code, pPaid := env.createPayment(tokPaid, paidBid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, pPaid)
+	pid := str(pPaid, "id")
+	code, m := env.signedWebhook(successBody(t, pid, env.amount(t, pid)))
+	require.Equal(t, http.StatusOK, code, m)
+
+	_, tokPend := env.newUser(t, "event-pend@test.local", "user")
+	code, bPend := env.book(tokPend, futureID, futureSeats[1])
+	require.Equal(t, http.StatusCreated, code, bPend)
+	pendBid := str(bPend, "id")
+
+	_, tokPast := env.newUser(t, "event-past@test.local", "user")
+	code, bPast := env.book(tokPast, pastID, pastSeats[0])
+	require.Equal(t, http.StatusCreated, code, bPast)
+	pastBid := str(bPast, "id")
+	code, pPast := env.createPayment(tokPast, pastBid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, pPast)
+	pastPid := str(pPast, "id")
+	code, m = env.signedWebhook(successBody(t, pastPid, env.amount(t, pastPid)))
+	require.Equal(t, http.StatusOK, code, m)
+	require.NoError(t, env.gdb.Exec(
+		`UPDATE showtimes SET starts_at = now() - interval '1 day', status = 'closed' WHERE id = ?`, pastID).Error)
+
+	code, updated := env.do(http.MethodPut, "/api/v1/admin/events/"+eventID, env.adminTok, map[string]any{"status": "cancelled"})
+	require.Equal(t, http.StatusOK, code, updated)
+	assert.Equal(t, "archived", str(updated, "status"))
+	assert.Equal(t, "cancelled", env.status(t, "showtimes", futureID))
+	assert.Equal(t, "closed", env.status(t, "showtimes", pastID))
+
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", paidBid))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", pendBid))
+	assert.Equal(t, "PAID", env.status(t, "bookings", pastBid))
+	assert.Equal(t, "NEEDS_REFUND", env.status(t, "payments", pid))
+	assert.Equal(t, "SUCCEEDED", env.status(t, "payments", pastPid))
+	assert.Equal(t, "EVENT_CANCELLED", env.lastPayEvent(t, pid, "PAYMENT_NEEDS_REFUND").ReasonCode)
+	assert.EqualValues(t, 0, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, pendBid))
+	assert.False(t, env.holdExists(t, futureSeats[1]))
+	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets t JOIN booking_items bi ON bi.id = t.booking_item_id
+		WHERE bi.booking_id = ? AND t.status = 'VOID'`, paidBid))
+	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets t JOIN booking_items bi ON bi.id = t.booking_item_id
+		WHERE bi.booking_id = ? AND t.status = 'VALID'`, pastBid))
+
+	code, list := env.do(http.MethodGet, "/api/v1/admin/payments?status=NEEDS_REFUND", env.adminTok, nil)
+	require.Equal(t, http.StatusOK, code, list)
+	found := false
+	for _, item := range list["items"].([]any) {
+		row := item.(map[string]any)
+		if str(row, "id") == pid {
+			found = true
+			assert.Equal(t, "EVENT_CANCELLED", str(row, "failure_code"))
+		}
+	}
+	assert.True(t, found, "cancelled event payment is on the refund list")
+
+	code, r := env.requestRefund(pid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, r)
+	code, done := env.process(str(r, "id"))
+	require.Equal(t, http.StatusOK, code, done)
+	assert.Equal(t, "COMPLETED", str(done, "status"))
+	assert.Equal(t, "REFUNDED", env.status(t, "payments", pid))
+	assert.Equal(t, "PAID", env.status(t, "bookings", pastBid))
+}
+
+func TestAdmin_CancelRejectedWhenTicketCheckedIn(t *testing.T) {
+	env := newAdminEnv(t)
+	starts := time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339)
+	code, ev := env.do(http.MethodPost, "/api/v1/admin/events", env.adminTok, map[string]any{"title": "Checked In", "venue": "Hall"})
+	require.Equal(t, http.StatusCreated, code, ev)
+	eventID := str(ev, "id")
+	code, st := env.do(http.MethodPost, "/api/v1/admin/events/"+eventID+"/showtimes", env.adminTok, map[string]any{
+		"starts_at": starts, "rows": 1, "seats_per_row": 2, "price_satang": 10000,
+	})
+	require.Equal(t, http.StatusCreated, code, st)
+	showID := str(st, "id")
+	var seats []string
+	require.NoError(t, env.gdb.Raw(`SELECT id FROM seats WHERE showtime_id = ? ORDER BY seat_number`, showID).Scan(&seats).Error)
+	require.Len(t, seats, 2)
+
+	_, tok := env.newUser(t, "checked-in@test.local", "user")
+	code, b := env.book(tok, showID, seats[0])
+	require.Equal(t, http.StatusCreated, code, b)
+	bid := str(b, "id")
+	code, p := env.createPayment(tok, bid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, p)
+	pid := str(p, "id")
+	code, m := env.signedWebhook(successBody(t, pid, env.amount(t, pid)))
+	require.Equal(t, http.StatusOK, code, m)
+	codes := env.ticketCodes(t, bid)
+	require.Len(t, codes, 1)
+	code, m = env.checkIn(codes[0])
+	require.Equal(t, http.StatusOK, code, m)
+
+	for _, status := range []string{"closed", "cancelled"} {
+		code, m = env.do(http.MethodPut, "/api/v1/admin/showtimes/"+showID, env.adminTok, map[string]any{"status": status})
+		assert.Equal(t, http.StatusConflict, code, m)
+		assert.Equal(t, "CANNOT_CANCEL_USED_SHOWTIME", errCode(m))
+		assert.Contains(t, errMessage(m), "already been checked in")
+	}
+	assert.Equal(t, "on_sale", env.status(t, "showtimes", showID))
+	assert.Equal(t, "PAID", env.status(t, "bookings", bid))
+	assert.Equal(t, "SUCCEEDED", env.status(t, "payments", pid))
+	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets WHERE code = ? AND status = 'USED' AND checked_in_at IS NOT NULL`, codes[0]))
+
+	code, m = env.do(http.MethodPut, "/api/v1/admin/events/"+eventID, env.adminTok, map[string]any{"status": "cancelled"})
+	assert.Equal(t, http.StatusConflict, code, m)
+	assert.Equal(t, "CANNOT_CANCEL_USED_EVENT", errCode(m))
+	assert.Contains(t, errMessage(m), "already been checked in")
+	code, m = env.do(http.MethodPut, "/api/v1/admin/events/"+eventID, env.adminTok, map[string]any{"status": "archived"})
+	assert.Equal(t, http.StatusConflict, code, m)
+	assert.Equal(t, "CANNOT_CANCEL_USED_EVENT", errCode(m))
+	code, m = env.do(http.MethodDelete, "/api/v1/admin/events/"+eventID, env.adminTok, nil)
+	assert.Equal(t, http.StatusConflict, code, m)
+	assert.Equal(t, "CANNOT_CANCEL_USED_EVENT", errCode(m))
+	assert.Equal(t, "published", env.status(t, "events", eventID))
+	assert.Equal(t, "on_sale", env.status(t, "showtimes", showID))
+	assert.Equal(t, "PAID", env.status(t, "bookings", bid))
 }

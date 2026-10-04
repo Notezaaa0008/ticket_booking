@@ -411,19 +411,29 @@ func TestAdmin_CheckIn(t *testing.T) {
 	ticket, _ := m["ticket"].(map[string]any)
 	assert.Equal(t, "USED", str(ticket, "status"))
 	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM tickets WHERE code = ? AND status = 'USED' AND checked_in_at IS NOT NULL`, codes[0]))
+	checked := env.events(t, `booking_id = ? AND event_type = 'TICKET_CHECKED_IN'`, bid)
+	require.Len(t, checked, 1)
+	assert.Equal(t, "SUCCESS", checked[0].Outcome)
+	assert.Equal(t, "ADMIN", checked[0].ActorType)
+	assert.Equal(t, "VALID", checked[0].FromStatus)
+	assert.Equal(t, "USED", checked[0].ToStatus)
+	assert.Contains(t, checked[0].Metadata, codes[0])
 
 	code, m = env.checkIn(codes[0])
 	assert.Equal(t, http.StatusUnprocessableEntity, code, m)
 	assert.Equal(t, "TICKET_ALREADY_USED", errCode(m))
+	assert.EqualValues(t, 1, env.countEvents(t, "TICKET_CHECK_IN_REJECTED", "FAILURE", "TICKET_ALREADY_USED"))
 
 	require.NoError(t, env.gdb.Exec(`UPDATE tickets SET status = 'VOID' WHERE code = ?`, codes[1]).Error)
 	code, m = env.checkIn(codes[1])
 	assert.Equal(t, http.StatusUnprocessableEntity, code, m)
 	assert.Equal(t, "TICKET_VOID", errCode(m))
+	assert.EqualValues(t, 1, env.countEvents(t, "TICKET_CHECK_IN_REJECTED", "FAILURE", "TICKET_VOID"))
 
 	code, m = env.checkIn("does-not-exist")
 	assert.Equal(t, http.StatusNotFound, code, m)
 	assert.Equal(t, "NOT_FOUND", errCode(m))
+	assert.EqualValues(t, 1, env.countEvents(t, "TICKET_CHECK_IN_REJECTED", "FAILURE", "NOT_FOUND"))
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -447,6 +457,35 @@ func TestAdmin_CheckIn(t *testing.T) {
 	}
 	assert.Equal(t, 1, ok, "exactly one concurrent check-in wins")
 	assert.Equal(t, n-1, used)
+	assert.EqualValues(t, 2, env.count(t, `SELECT COUNT(*) FROM booking_events WHERE booking_id = ? AND event_type = 'TICKET_CHECKED_IN' AND outcome = 'SUCCESS'`, bid))
+	assert.EqualValues(t, n, env.countEvents(t, "TICKET_CHECK_IN_REJECTED", "FAILURE", "TICKET_ALREADY_USED"))
+}
+
+func TestAdmin_ProcessRefundMissingAndUnexpectedRef(t *testing.T) {
+	env := newAdminEnv(t)
+	missing := uuid.NewString()
+	code, m := env.process(missing)
+	assert.Equal(t, http.StatusNotFound, code, m)
+	assert.Equal(t, "NOT_FOUND", errCode(m))
+	evs := env.payEvents(t, `event_type = 'REFUND_REJECTED' AND reason_code = 'NOT_FOUND' AND payment_id IS NULL`)
+	require.Len(t, evs, 1)
+	assertPayEvent(t, evs[0], "REFUND_REJECTED", "FAILURE", "NOT_FOUND", "")
+	assert.Contains(t, evs[0].RawPayload, missing)
+
+	_, pid := env.paidBooking(t, "badref@test.local", bkSeatA1)
+	code, created := env.requestRefund(pid, uuid.NewString())
+	require.Equal(t, http.StatusCreated, code, created)
+	refundID := str(created, "id")
+	require.NoError(t, env.gdb.Exec(`UPDATE refunds SET provider_ref = 'stray' WHERE id = ?`, refundID).Error)
+	code, m = env.process(refundID)
+	assert.Equal(t, http.StatusInternalServerError, code, m)
+	assert.Equal(t, "INTERNAL_ERROR", errCode(m))
+	assert.Equal(t, "REQUESTED", env.status(t, "refunds", refundID))
+	assert.Equal(t, "SUCCEEDED", env.status(t, "payments", pid))
+	bad := env.payEvents(t, `payment_id = ? AND event_type = 'REFUND_FAILED' AND reason_code = 'INTERNAL_ERROR'`, pid)
+	require.Len(t, bad, 1)
+	assertPayEvent(t, bad[0], "REFUND_FAILED", "FAILURE", "INTERNAL_ERROR", "")
+	assert.Contains(t, bad[0].RawPayload, refundID)
 }
 
 func TestAdmin_StatsListsAndTimeline(t *testing.T) {

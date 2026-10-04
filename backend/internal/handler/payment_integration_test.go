@@ -403,11 +403,14 @@ func TestPayment_InvalidSignatureRejected(t *testing.T) {
 		assert.False(t, *rej[i].SignatureValid)
 		assert.Contains(t, rej[i].RawPayload, paymentID, "raw payload kept for tracing")
 		assert.NotContains(t, rej[i].RawPayload, goodSig, "signature never stored")
+		recv := env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED' AND reason_code = ''`)
+		require.Len(t, recv, i+1, tc.name)
+		require.NotNil(t, recv[i].SignatureValid)
+		assert.False(t, *recv[i].SignatureValid, "received event records that the signature was invalid")
 	}
 	assert.Equal(t, "PENDING", env.status(t, "payments", paymentID))
 	assert.Equal(t, "PENDING", env.status(t, "bookings", bookingID))
 	assert.EqualValues(t, 0, env.ticketCount(t, bookingID))
-	assert.Empty(t, env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED'`))
 }
 
 func TestPayment_MalformedAndUnknownWebhook(t *testing.T) {
@@ -424,12 +427,16 @@ func TestPayment_MalformedAndUnknownWebhook(t *testing.T) {
 	require.NotNil(t, rej[0].SignatureValid)
 	assert.True(t, *rej[0].SignatureValid)
 	assert.Contains(t, rej[0].RawPayload, "raw_text")
+	malformedRecv := env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED' AND reason_code = ''`)
+	require.Len(t, malformedRecv, 2)
+	require.NotNil(t, malformedRecv[0].SignatureValid)
+	assert.True(t, *malformedRecv[0].SignatureValid)
 
 	unknown := uuid.NewString()
 	code, m = env.signedWebhook(successBody(t, unknown, 100))
 	assert.Equal(t, http.StatusNotFound, code)
 	assert.Equal(t, "UNKNOWN_PAYMENT", errCode(m))
-	assert.Len(t, env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED' AND payment_id IS NULL`), 1)
+	assert.Len(t, env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED' AND payment_id IS NULL AND raw_payload::text LIKE ?`, "%"+unknown+"%"), 1)
 	unk := env.payEvents(t, `event_type = 'WEBHOOK_REJECTED' AND reason_code = 'UNKNOWN_PAYMENT'`)
 	require.Len(t, unk, 1)
 	assertPayEvent(t, unk[0], "WEBHOOK_REJECTED", "FAILURE", "UNKNOWN_PAYMENT", "")
@@ -484,6 +491,36 @@ func TestPayment_AfterExpirySeatRebookedNeedsRefund(t *testing.T) {
 	assert.Equal(t, "PENDING", env.status(t, "bookings", otherID), "other user's booking untouched")
 	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, otherID))
 	assert.EqualValues(t, 0, env.ticketCount(t, otherID))
+}
+
+func TestPayment_SeatLostAfterCancelAndRebookNeedsRefund(t *testing.T) {
+	env := newPayEnv(t, false, bkOpts{})
+	_, tok1 := env.newUser(t, "lost1@example.com", "user")
+	_, tok2 := env.newUser(t, "lost2@example.com", "user")
+	bookingID, paymentID := env.bookAndPay(t, tok1, bkSeatA1)
+
+	code, cancelled := env.do(http.MethodDelete, "/api/v1/bookings/"+bookingID, tok1, nil)
+	require.Equal(t, http.StatusOK, code, cancelled)
+	require.Equal(t, "CANCELLED", env.status(t, "bookings", bookingID))
+
+	code, other := env.book(tok2, bkShowtime, bkSeatA1)
+	require.Equal(t, http.StatusCreated, code, other)
+	otherID := str(other, "id")
+
+	code, res := env.signedWebhook(successBody(t, paymentID, 10000))
+	require.Equal(t, http.StatusOK, code, res)
+	code, p := env.do(http.MethodGet, "/api/v1/payments/"+paymentID, tok1, nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "NEEDS_REFUND", str(p, "status"))
+	assert.Equal(t, "SEAT_LOST", str(p, "failure_code"))
+	assert.EqualValues(t, 0, env.ticketCount(t, bookingID))
+	assert.Equal(t, "CANCELLED", env.status(t, "bookings", bookingID))
+	evs := env.payEvents(t, `payment_id = ? AND event_type = 'PAYMENT_AFTER_EXPIRY'`, paymentID)
+	require.Len(t, evs, 1)
+	assertPayEvent(t, evs[0], "PAYMENT_AFTER_EXPIRY", "FAILURE", "SEAT_LOST", "NEEDS_REFUND")
+
+	assert.Equal(t, "PENDING", env.status(t, "bookings", otherID))
+	assert.EqualValues(t, 1, env.count(t, `SELECT COUNT(*) FROM booking_items WHERE booking_id = ? AND active`, otherID))
 }
 
 func TestPayment_JustPastExpiresAtStillAccepted(t *testing.T) {
@@ -642,6 +679,30 @@ func TestPayment_OwnershipAndDisabledGateway(t *testing.T) {
 
 	code, _ = env.mockPay(paymentID, "success")
 	assert.Equal(t, http.StatusNotFound, code, "mock gateway route absent when disabled")
+}
+
+func TestPayment_WebhookLookupFailureIsAudited(t *testing.T) {
+	env := newPayEnv(t, false, bkOpts{})
+	_, tok := env.newUser(t, "byid@example.com", "user")
+	bookingID, paymentID := env.bookAndPay(t, tok, bkSeatA1)
+	body := successBody(t, paymentID, 10000)
+	psvc := service.NewPaymentService(repository.NewPaymentRepository(env.gdb), repository.NewBookingRepository(env.gdb), env.svc, payWebhookSecret)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := psvc.HandleWebhook(ctx, body, service.Sign([]byte(payWebhookSecret), body))
+	require.Error(t, err)
+	assert.Equal(t, "PENDING", env.status(t, "payments", paymentID))
+	assert.Equal(t, "PENDING", env.status(t, "bookings", bookingID))
+	assert.EqualValues(t, 0, env.ticketCount(t, bookingID))
+	rej := env.payEvents(t, `event_type = 'WEBHOOK_REJECTED' AND reason_code = 'INTERNAL_ERROR' AND payment_id IS NULL`)
+	require.Len(t, rej, 1)
+	assertPayEvent(t, rej[0], "WEBHOOK_REJECTED", "FAILURE", "INTERNAL_ERROR", "")
+	require.NotNil(t, rej[0].SignatureValid)
+	assert.True(t, *rej[0].SignatureValid)
+	recv := env.payEvents(t, `event_type = 'WEBHOOK_RECEIVED' AND payment_id IS NULL AND raw_payload::text LIKE ?`, "%"+paymentID+"%")
+	require.Len(t, recv, 1)
+	assert.Empty(t, recv[0].ReasonCode)
 }
 
 func TestPayment_WebhookInternalError500(t *testing.T) {

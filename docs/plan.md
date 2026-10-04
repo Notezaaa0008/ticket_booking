@@ -49,7 +49,7 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 | 3 | Auth + Booking | ☐ | | |
 | 4 | Payment + Ticket | ☑ PHASE VERIFIED (PASS 100%) | feat(phase4) | 2026-10-03 |
 | 5 | Admin + Refund | ☑ PHASE VERIFIED (PASS 100%) | phase-5-done | 2026-10-03 |
-| 6 | Hardening + Delivery | ☐ | | |
+| 6 | Hardening + Delivery | ☑ PHASE VERIFIED (PASS 100%) | — | 2026-10-04 |
 
 ---
 
@@ -282,23 +282,25 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 
 **ต้องให้คนอนุมัติ:** การแก้ใด ๆ ที่แตะ schema, booking, payment, refund, auth (ตาม `AGENTS.md` ข้อ 10)
 
+> **สถานะ Phase 6:** **PHASE VERIFIED (PASS 100%)** — 2026-10-04 (`/verify-phase` + human sign-off P6-09, P6-12, P6-13, P6-16)
+
 ### Checklist
-- [ ] **P6-00** ชุดตรวจมาตรฐานผ่าน และ `go test ./... -race -count=1` ผ่านทั้งหมด (แปะ output เต็ม)
-- [ ] **P6-01** `docs/test-matrix.md` ครอบคลุมสถานการณ์ขั้นต่ำ: จองชนกัน, จองหลายที่นั่งบางส่วนชน, Redis ล่ม, hold หมดเวลา, lazy expiry, ยกเลิก, webhook ซ้ำ/พร้อมกัน, ลายเซ็นผิด, ยอดไม่ตรง, จ่ายหลังหมดเวลา+ที่นั่งถูกจองใหม่, จ่ายซ้ำหลังล้มเหลว, คืนเงินสำเร็จ/ล้มเหลว/ซ้ำ, check-in ซ้ำ, admin 403, JWT หมดอายุ **และทุกแถวมีชื่อ test ที่ผ่านจริง**
-- [ ] **P6-02** `docs/logging-audit.md` แมปทุกฟังก์ชันที่เปลี่ยนสถานะหรือคืน error → event ที่เขียน → test และไม่พบเส้นทางที่เปลี่ยนสถานะโดยไม่มี event
-- [ ] **P6-03** ไม่มีโค้ดที่ UPDATE/DELETE ตาราง event (ตรวจด้วย grep และ test)
-- [ ] **P6-04** `scripts/checkdb.sql` ทุกบรรทัดเป็น PASS — ครอบคลุม 8 กฎ: ที่นั่งไม่ซ้อน, ไม่มี item active ค้าง, PAID ครบถ้วน, ไม่มี PENDING ค้างเกิน 2 นาที, event ครบ, ยอดคืนเงินถูกต้อง, ตั๋ว VOID ถูกต้อง, ไม่มี event อ้างข้อมูลที่ไม่มี
-- [ ] **P6-06** Security: CORS จำกัดเฉพาะ origin ของเว็บ, error ไม่เปิดเผย stack/SQL, secret ทั้งหมดมาจาก env, mock gateway ปิดเมื่อไม่ได้เปิดแฟล็ก, admin route ถูกป้องกัน, `git grep` ไม่พบ secret จริง
-- [ ] **P6-07** Reliability: graceful shutdown หยุด expiry job, ทุก DB/Redis call มี timeout, เริ่มระบบแล้วบอกชัดเจนเมื่อ env ขาดหรือ migration ยังไม่ครบ
-- [ ] **P6-08** Dependency รีวิวแล้ว (go.mod, package.json) ไม่มีตัวที่ไม่ได้ใช้
-- [ ] **P6-09** Frontend: ทุกหน้ามี loading/empty/error, ทุกสถานะ booking/payment/refund มีข้อความเฉพาะตัว, ไม่มี console error ใน flow หลัก
-- [ ] **P6-10** README ครบตามโครง: Overview, Prerequisites (พร้อมเวอร์ชัน), Quick start, บัญชีทดสอบจาก seed, วิธีรัน test, วิธีรัน `scripts/checkdb.sql` และ `scripts/verify-schema.sql`, โครงสร้างโปรเจกต์, Design notes (seat hold, กันจองซ้ำ 2 ชั้น, idempotency, webhook, audit log + ห่วงโซ่คืนเงิน, Redis fallback), Known limitations
-- [ ] **P6-11** `docs/api.md`, `docs/flow.md`, `docs/schema.md` ตรงกับโค้ดจริง
-- [ ] **P6-12** **Clean-room:** clone ใหม่ในโฟลเดอร์อื่น ทำตาม README อย่างเดียวจนระบบรันได้ (ไม่เกิน ~10 คำสั่ง) และทุกขั้นที่สะดุดถูกแก้ใน README
-- [ ] **P6-13** `docs/demo-script.md` ซ้อมจบใน ~5 นาที: ค้นหา → 2 เบราว์เซอร์จองที่นั่งเดียวกัน → นับถอยหลัง → จ่ายสำเร็จ → ตั๋ว+QR → จ่ายล้มเหลวแล้วลองใหม่ → จ่ายหลังหมดเวลากลายเป็น NEEDS_REFUND → admin timeline และคืนเงิน → `scripts/checkdb.sql`
-- [ ] **P6-14** `docs/ai-log.md` มีอย่างน้อย 3 กรณีที่ AI พลาด (AI อ้างอะไร, ความจริง, จับได้อย่างไร, แก้อย่างไร, กติกาที่เพิ่ม)
-- [ ] **P6-15** ไม่มี TODO/FIXME ค้าง, `.env.example` ครบ, ไม่มีไฟล์ขยะใน repo
-- [ ] **P6-16** 👤 คนอ่านโค้ดส่วน booking, payment, refund และ auth ครบ และอธิบายได้ด้วยคำพูดตัวเอง (ซ้อมตอบคำถามในไฟล์เอกสารข้อ "เตรียมสัมภาษณ์")
+- [x] **P6-00** ชุดตรวจมาตรฐานผ่าน และ `go test ./... -race -count=1` ผ่านทั้งหมด (แปะ output เต็ม) — VERIFIED (`go vet`, `gofmt -l` clean, `go test ./... -race -count=1`, frontend lint/`tsc`/build, 2026-10-04)
+- [x] **P6-01** `docs/test-matrix.md` ครอบคลุมสถานการณ์ขั้นต่ำ: จองชนกัน, จองหลายที่นั่งบางส่วนชน, Redis ล่ม, hold หมดเวลา, lazy expiry, ยกเลิก, webhook ซ้ำ/พร้อมกัน, ลายเซ็นผิด, ยอดไม่ตรง, จ่ายหลังหมดเวลา+ที่นั่งถูกจองใหม่, จ่ายซ้ำหลังล้มเหลว, คืนเงินสำเร็จ/ล้มเหลว/ซ้ำ, check-in ซ้ำ, admin 403, JWT หมดอายุ **และทุกแถวมีชื่อ test ที่ผ่านจริง** — VERIFIED (`docs/test-matrix.md`; handler package `ok`)
+- [x] **P6-02** `docs/logging-audit.md` แมปทุกฟังก์ชันที่เปลี่ยนสถานะหรือคืน error → event ที่เขียน → test และไม่พบเส้นทางที่เปลี่ยนสถานะโดยไม่มี event — VERIFIED (`docs/logging-audit.md`; `TestPayment_SeatLostAfterCancelAndRebookNeedsRefund`)
+- [x] **P6-03** ไม่มีโค้ดที่ UPDATE/DELETE ตาราง event (ตรวจด้วย grep และ test) — VERIFIED (`TestPayment_EventTablesAppendOnly`, `TestAdmin_RefundFlowEventsAppendOnly`)
+- [x] **P6-04** `scripts/checkdb.sql` ทุกบรรทัดเป็น PASS — ครอบคลุม 8 กฎ: ที่นั่งไม่ซ้อน, ไม่มี item active ค้าง, PAID ครบถ้วน, ไม่มี PENDING ค้างเกิน 2 นาที, event ครบ, ยอดคืนเงินถูกต้อง, ตั๋ว VOID ถูกต้อง, ไม่มี event อ้างข้อมูลที่ไม่มี — VERIFIED (live `psql -f /scripts/checkdb.sql`, rules 1–8 violations 0)
+- [x] **P6-06** Security: CORS จำกัดเฉพาะ origin ของเว็บ, error ไม่เปิดเผย stack/SQL, secret ทั้งหมดมาจาก env, mock gateway ปิดเมื่อไม่ได้เปิดแฟล็ก, admin route ถูกป้องกัน, `git grep` ไม่พบ secret จริง — VERIFIED (CORS origin only; `RespondError`; mock route gated; admin 401 without a token)
+- [x] **P6-07** Reliability: graceful shutdown หยุด expiry job, ทุก DB/Redis call มี timeout, เริ่มระบบแล้วบอกชัดเจนเมื่อ env ขาดหรือ migration ยังไม่ครบ — VERIFIED (`stopJob` after shutdown; `CheckCurrent`; missing-env error)
+- [x] **P6-08** Dependency รีวิวแล้ว (go.mod, package.json) ไม่มีตัวที่ไม่ได้ใช้ — VERIFIED (`go mod tidy` unchanged; frontend deps used)
+- [x] **P6-09** Frontend: ทุกหน้ามี loading/empty/error, ทุกสถานะ booking/payment/refund มีข้อความเฉพาะตัว, ไม่มี console error ใน flow หลัก — VERIFIED (human browser, 2026-10-04; `docs/logs/p6-09-console-audit.md`, zero console errors)
+- [x] **P6-10** README ครบตามโครง: Overview, Prerequisites (พร้อมเวอร์ชัน), Quick start, บัญชีทดสอบจาก seed, วิธีรัน test, วิธีรัน `scripts/checkdb.sql` และ `scripts/verify-schema.sql`, โครงสร้างโปรเจกต์, Design notes (seat hold, กันจองซ้ำ 2 ชั้น, idempotency, webhook, audit log + ห่วงโซ่คืนเงิน, Redis fallback), Known limitations — VERIFIED (`README.md`)
+- [x] **P6-11** `docs/api.md`, `docs/flow.md`, `docs/schema.md` ตรงกับโค้ดจริง — VERIFIED (Gin routes match `docs/api.md` and `docs/flow.md`; schema SQL matches `0001_init.up.sql`)
+- [x] **P6-12** **Clean-room:** clone ใหม่ในโฟลเดอร์อื่น ทำตาม README อย่างเดียวจนระบบรันได้ (ไม่เกิน ~10 คำสั่ง) และทุกขั้นที่สะดุดถูกแก้ใน README — VERIFIED (human, 2026-10-04; `docs/logs/p6-12-cleanroom-transcript.md`, 7 commands, no build errors)
+- [x] **P6-13** `docs/demo-script.md` ซ้อมจบใน ~5 นาที: ค้นหา → 2 เบราว์เซอร์จองที่นั่งเดียวกัน → นับถอยหลัง → จ่ายสำเร็จ → ตั๋ว+QR → จ่ายล้มเหลวแล้วลองใหม่ → จ่ายหลังหมดเวลากลายเป็น NEEDS_REFUND → admin timeline และคืนเงิน → `scripts/checkdb.sql` — VERIFIED (human, 2026-10-04; `docs/logs/p6-13-demo-rehearsal.md`, about 5 minutes)
+- [x] **P6-14** `docs/ai-log.md` มีอย่างน้อย 3 กรณีที่ AI พลาด (AI อ้างอะไร, ความจริง, จับได้อย่างไร, แก้อย่างไร, กติกาที่เพิ่ม) — VERIFIED (`docs/ai-log.md` required cases 1–3)
+- [x] **P6-15** ไม่มี TODO/FIXME ค้าง, `.env.example` ครบ, ไม่มีไฟล์ขยะใน repo — VERIFIED (no TODO/FIXME in app code; `.env.example` complete; root lockfile and duplicate `ai-log.md` removed)
+- [x] **P6-16** 👤 คนอ่านโค้ดส่วน booking, payment, refund และ auth ครบ และอธิบายได้ด้วยคำพูดตัวเอง (ซ้อมตอบคำถามในไฟล์เอกสารข้อ "เตรียมสัมภาษณ์") — VERIFIED (human sign-off 2026-10-04: walkthrough ready for booking hold/expiry, payment webhook and NEEDS_REFUND, refund request/process, and auth JWT/roles)
 
 > **P6-05** ถูกยกเลิก (เดิมคือ test ที่จงใจสร้างข้อมูลผิดเพื่อพิสูจน์ว่า checkdb จับได้ — ไม่มี checkdb แบบ Go แล้ว) รหัสนี้สงวนไว้ ไม่นำกลับมาใช้ซ้ำ
 

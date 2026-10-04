@@ -35,9 +35,16 @@ cd frontend && npm install && npm run dev
 
 ## Tests and checks
 ```bash
+# from the repo root
 ./scripts/check.sh          # Windows: ./scripts/check.ps1   (NO_RACE=1 if the race detector is unavailable)
-docker compose exec postgres psql -U ticket -d ticket_booking -v ON_ERROR_STOP=1 -f /scripts/verify-schema.sql   # constraints
-docker compose exec postgres psql -U ticket -d ticket_booking -f /scripts/checkdb.sql                            # data invariants
+
+# direct checks
+(cd backend && go test ./... -race -count=1)
+(cd frontend && npm run lint && npx tsc --noEmit)
+
+# schema constraints, then data invariants (every rule must be PASS)
+docker compose exec -T postgres psql -U ticket -d ticket_booking -v ON_ERROR_STOP=1 -f /scripts/verify-schema.sql
+docker compose exec -T postgres psql -U ticket -d ticket_booking -f /scripts/checkdb.sql
 ```
 
 ## Security (frontend auth)
@@ -57,4 +64,4 @@ Implementation: `frontend/src/lib/api.ts` (`tb_token`) sends `Authorization: Bea
 `backend/` Go API (cmd, internal, migrations, seed) · `frontend/` Next.js app · `scripts/` checks and SQL verification · `docs/` plan, schema, demo script, AI log
 
 ## Known limitations
-Mock payment gateway only; full refunds only; no email; single instance (expiry job is not distributed).
+Mock payment gateway only; no email; single instance.

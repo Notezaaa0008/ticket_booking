@@ -435,8 +435,8 @@ func (r *AdminRepository) ShowtimeStarted(ctx context.Context, db *gorm.DB, show
 
 // CheckIn marks a VALID ticket of a PAID booking as USED. The conditional UPDATE is atomic, so among
 // concurrent check-ins of the same code exactly one gets true.
-func (r *AdminRepository) CheckIn(ctx context.Context, code string) (bool, error) {
-	res := r.db.WithContext(ctx).Exec(
+func (r *AdminRepository) CheckIn(ctx context.Context, db *gorm.DB, code string) (bool, error) {
+	res := db.WithContext(ctx).Exec(
 		`UPDATE tickets t SET status = 'USED', checked_in_at = now()
 		   FROM booking_items bi, bookings b
 		  WHERE t.code = ? AND t.status = 'VALID'
@@ -457,9 +457,26 @@ func (r *AdminRepository) TicketState(ctx context.Context, code string) (*Ticket
 		  WHERE t.code = ?`, code).Scan(&s), &s)
 }
 
-func (r *AdminRepository) TicketByCode(ctx context.Context, code string) (*TicketRow, error) {
+type TicketAuditRow struct {
+	BookingID  string `gorm:"column:booking_id"`
+	UserID     string `gorm:"column:user_id"`
+	ShowtimeID string `gorm:"column:showtime_id"`
+	Status     string `gorm:"column:status"`
+}
+
+func (r *AdminRepository) TicketAudit(ctx context.Context, db *gorm.DB, code string) (*TicketAuditRow, error) {
+	var row TicketAuditRow
+	return one(db.WithContext(ctx).Raw(
+		`SELECT b.id AS booking_id, b.user_id, b.showtime_id, t.status
+		   FROM tickets t
+		   JOIN booking_items bi ON bi.id = t.booking_item_id
+		   JOIN bookings b ON b.id = bi.booking_id
+		  WHERE t.code = ?`, code).Scan(&row), &row)
+}
+
+func (r *AdminRepository) TicketByCode(ctx context.Context, db *gorm.DB, code string) (*TicketRow, error) {
 	var t TicketRow
-	return one(r.db.WithContext(ctx).Raw(ticketSelect+` WHERE t.code = ?`, code).Scan(&t), &t)
+	return one(db.WithContext(ctx).Raw(ticketSelect+` WHERE t.code = ?`, code).Scan(&t), &t)
 }
 
 // ---------- stats ----------

@@ -42,6 +42,9 @@ func main() {
 		return
 	}
 
+	if err := db.CheckCurrent(cfg.DatabaseURL); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
 	gdb, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("database error: %v", err)

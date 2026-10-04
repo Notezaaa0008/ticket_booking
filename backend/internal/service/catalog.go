@@ -17,6 +17,7 @@ import (
 
 const eventsListCacheTTL = 30 * time.Second
 const eventsListCachePrefix = "events:list:"
+const catalogOpTimeout = 10 * time.Second
 
 type CatalogService struct {
 	repo *repository.CatalogRepository
@@ -89,6 +90,8 @@ type ShowtimeSeatsResponse struct {
 }
 
 func (s *CatalogService) ListEvents(ctx context.Context, in ListEventsInput) (*EventListResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, catalogOpTimeout)
+	defer cancel()
 	page, limit, err := parsePageLimit(in.Page, in.Limit)
 	if err != nil {
 		return nil, err
@@ -149,6 +152,8 @@ func (s *CatalogService) ListEvents(ctx context.Context, in ListEventsInput) (*E
 }
 
 func (s *CatalogService) GetEvent(ctx context.Context, id uuid.UUID) (*EventDetailResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, catalogOpTimeout)
+	defer cancel()
 	ev, err := s.repo.GetPublishedEvent(ctx, id)
 	if err != nil {
 		return nil, err
@@ -183,6 +188,8 @@ func (s *CatalogService) GetEvent(ctx context.Context, id uuid.UUID) (*EventDeta
 }
 
 func (s *CatalogService) GetShowtimeSeats(ctx context.Context, showtimeID uuid.UUID) (*ShowtimeSeatsResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, catalogOpTimeout)
+	defer cancel()
 	ok, err := s.repo.ShowtimeExists(ctx, showtimeID)
 	if err != nil {
 		return nil, err

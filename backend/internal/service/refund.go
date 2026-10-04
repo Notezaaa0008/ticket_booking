@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -217,6 +219,7 @@ func (s *AdminService) ProcessRefund(ctx context.Context, adminID, refundID stri
 
 	var snap *refundProcessSnapshot
 	var paymentID, bookingID *string
+	var businessErr error
 	deadline := time.Now().Add(adminOpTimeout)
 
 	for {
@@ -228,14 +231,18 @@ func (s *AdminService) ProcessRefund(ctx context.Context, adminID, refundID stri
 				return err
 			}
 			if r == nil {
-				return notFound("refund")
+				businessErr = notFound("refund")
+				s.recordRefundProblem(ctx, tx, adminID, refundID, nil, nil, domain.EvRefundRejected, domain.ReasonNotFound)
+				return nil
 			}
 			if r.Status != string(domain.RefundRequested) {
 				terminal = r
 				return nil
 			}
 			if r.ProviderRef != "" && r.ProviderRef != refundProcessingRef {
-				return errors.New("refund has unexpected provider_ref while REQUESTED")
+				businessErr = errors.New("refund has unexpected provider_ref while REQUESTED")
+				s.recordRefundProblem(ctx, tx, adminID, refundID, &r.PaymentID, &r.BookingID, domain.EvRefundFailed, domain.ReasonInternalError)
+				return nil
 			}
 			if r.ProviderRef == refundProcessingRef {
 				inProgress = true
@@ -284,6 +291,9 @@ func (s *AdminService) ProcessRefund(ctx context.Context, adminID, refundID stri
 			}
 			return nil, err
 		}
+		if businessErr != nil {
+			return nil, businessErr
+		}
 		if terminal != nil {
 			v := refundView(terminal)
 			return &v, nil
@@ -308,7 +318,9 @@ func (s *AdminService) ProcessRefund(ctx context.Context, adminID, refundID stri
 			return err
 		}
 		if r == nil {
-			return notFound("refund")
+			businessErr = notFound("refund")
+			s.recordRefundProblem(ctx, tx, adminID, refundID, paymentID, bookingID, domain.EvRefundRejected, domain.ReasonNotFound)
+			return nil
 		}
 		out = r
 		if r.Status != string(domain.RefundRequested) {
@@ -399,8 +411,30 @@ func (s *AdminService) ProcessRefund(ctx context.Context, adminID, refundID stri
 		}
 		return nil, err
 	}
+	if businessErr != nil {
+		return nil, businessErr
+	}
 	v := refundView(out)
 	return &v, nil
+}
+
+// recordRefundProblem writes a terminal refund event in the caller's transaction and commits
+// with it. A failed write is logged; the transaction still commits so the caller can return
+// the original error.
+func (s *AdminService) recordRefundProblem(ctx context.Context, tx *gorm.DB, adminID, refundID string, paymentID, bookingID *string, ev domain.PaymentEventType, reason domain.ReasonCode) {
+	payload, err := json.Marshal(map[string]string{"refund_id": refundID})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "request_id=%v audit write failed (event=%s reason=%s): %v\n",
+			ctx.Value(RequestIDKey), ev, reason, err)
+		return
+	}
+	if err := audit.RecordPaymentEvent(ctx, tx, audit.PaymentEvent{
+		PaymentID: paymentID, BookingID: bookingID, EventType: ev, Outcome: domain.OutcomeFailure, ReasonCode: reason,
+		ActorType: domain.ActorAdmin, ActorID: &adminID, RawPayload: payload,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "request_id=%v audit write failed (event=%s reason=%s): %v\n",
+			ctx.Value(RequestIDKey), ev, reason, err)
+	}
 }
 
 func (s *AdminService) ListRefunds(ctx context.Context, status string, page int) (*Page[RefundView], error) {

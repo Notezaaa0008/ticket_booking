@@ -606,39 +606,78 @@ type CheckInResult struct {
 }
 
 // CheckIn uses a ticket (D6): VALID ticket of a PAID booking only; the first use wins.
-func (s *AdminService) CheckIn(ctx context.Context, code string) (*CheckInResult, error) {
+// The status change and its audit event commit in one transaction.
+func (s *AdminService) CheckIn(ctx context.Context, adminID, code string) (*CheckInResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, adminOpTimeout)
 	defer cancel()
 	code = strings.TrimSpace(code)
-	if code == "" || len(code) > 64 {
-		return nil, notFound("ticket")
-	}
-	ok, err := s.repo.CheckIn(ctx, code)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		st, err := s.repo.TicketState(ctx, code)
+
+	var result *CheckInResult
+	var reject error
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if code == "" || len(code) > 64 {
+			reject = notFound("ticket")
+			return s.recordCheckIn(ctx, tx, adminID, nil, code, "", "", domain.EvTicketCheckInRejected, domain.OutcomeFailure, domain.ReasonNotFound)
+		}
+		ok, err := s.repo.CheckIn(ctx, tx, code)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		switch {
-		case st == nil:
-			return nil, notFound("ticket")
-		case st.TicketStatus == string(domain.TicketUsed):
-			return nil, domain.NewError(domain.ReasonTicketAlreadyUsed, "ticket was already used")
-		default:
-			return nil, domain.NewError(domain.ReasonTicketVoid, "ticket is void or its booking is not paid")
+		row, err := s.repo.TicketAudit(ctx, tx, code)
+		if err != nil {
+			return err
 		}
-	}
-	t, err := s.repo.TicketByCode(ctx, code)
+		if ok {
+			if row == nil {
+				return notFound("ticket")
+			}
+			if err := s.recordCheckIn(ctx, tx, adminID, row, code, string(domain.TicketValid), string(domain.TicketUsed),
+				domain.EvTicketCheckedIn, domain.OutcomeSuccess, ""); err != nil {
+				return err
+			}
+			t, err := s.repo.TicketByCode(ctx, tx, code)
+			if err != nil {
+				return err
+			}
+			if t == nil {
+				return notFound("ticket")
+			}
+			result = &CheckInResult{Result: "CHECKED_IN", Ticket: ticketViews([]repository.TicketRow{*t})[0]}
+			return nil
+		}
+		if row == nil {
+			reject = notFound("ticket")
+			return s.recordCheckIn(ctx, tx, adminID, nil, code, "", "", domain.EvTicketCheckInRejected, domain.OutcomeFailure, domain.ReasonNotFound)
+		}
+		reason := domain.ReasonTicketVoid
+		msg := "ticket is void or its booking is not paid"
+		if row.Status == string(domain.TicketUsed) {
+			reason = domain.ReasonTicketAlreadyUsed
+			msg = "ticket was already used"
+		}
+		reject = domain.NewError(reason, msg)
+		return s.recordCheckIn(ctx, tx, adminID, row, code, row.Status, row.Status, domain.EvTicketCheckInRejected, domain.OutcomeFailure, reason)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if t == nil {
-		return nil, notFound("ticket")
+	if reject != nil {
+		return nil, reject
 	}
-	return &CheckInResult{Result: "CHECKED_IN", Ticket: ticketViews([]repository.TicketRow{*t})[0]}, nil
+	return result, nil
+}
+
+func (s *AdminService) recordCheckIn(ctx context.Context, tx *gorm.DB, adminID string, row *repository.TicketAuditRow, code, from, to string, ev domain.BookingEventType, outcome domain.Outcome, reason domain.ReasonCode) error {
+	var bookingID, userID, showtimeID *string
+	if row != nil {
+		bookingID, userID, showtimeID = &row.BookingID, &row.UserID, &row.ShowtimeID
+	}
+	return audit.RecordBookingEvent(ctx, tx, audit.BookingEvent{
+		BookingID: bookingID, UserID: userID, ShowtimeID: showtimeID,
+		EventType: ev, Outcome: outcome, ReasonCode: reason, FromStatus: from, ToStatus: to,
+		ActorType: domain.ActorAdmin, ActorID: &adminID,
+		Metadata: map[string]any{"ticket_code": code},
+	})
 }
 
 // ---------- stats ----------

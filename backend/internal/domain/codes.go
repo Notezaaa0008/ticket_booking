@@ -82,11 +82,14 @@ const (
 	EvBookingCancelRejected BookingEventType = "BOOKING_CANCEL_REJECTED"
 	EvBookingRefunded       BookingEventType = "BOOKING_REFUNDED"
 	EvTicketsIssued         BookingEventType = "TICKETS_ISSUED"
+	EvTicketCheckedIn       BookingEventType = "TICKET_CHECKED_IN"
+	EvTicketCheckInRejected BookingEventType = "TICKET_CHECK_IN_REJECTED"
 )
 
 var AllBookingEventTypes = []BookingEventType{
 	EvBookingCreated, EvBookingCreateFailed, EvBookingPaid, EvBookingExpired,
 	EvBookingCancelled, EvBookingCancelRejected, EvBookingRefunded, EvTicketsIssued,
+	EvTicketCheckedIn, EvTicketCheckInRejected,
 }
 
 func (t BookingEventType) Valid() bool { return contains(AllBookingEventTypes, t) }

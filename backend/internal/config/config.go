@@ -44,6 +44,9 @@ func Load() (*Config, error) {
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
+	if cfg.CORSOrigin == "*" {
+		return nil, fmt.Errorf("CORS_ORIGIN must be a specific origin, not *")
+	}
 
 	ttl, err := strconv.Atoi(getenv("SEAT_HOLD_TTL_SECONDS", "600"))
 	if err != nil || ttl <= 0 {

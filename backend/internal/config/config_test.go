@@ -41,6 +41,17 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsWildcardOrigin(t *testing.T) {
+	for _, k := range requiredKeys {
+		t.Setenv(k, "value")
+	}
+	t.Setenv("CORS_ORIGIN", "*")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "CORS_ORIGIN") {
+		t.Fatalf("expected CORS_ORIGIN wildcard error, got %v", err)
+	}
+}
+
 func TestLoadRejectsBadTTL(t *testing.T) {
 	for _, k := range requiredKeys {
 		t.Setenv(k, "value")

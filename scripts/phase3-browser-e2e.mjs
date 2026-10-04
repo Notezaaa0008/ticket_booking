@@ -2,8 +2,9 @@
 /**
  * Phase 3 browser checks (Playwright). Requires:
  *   backend on :8080, frontend on :3000 (use localhost for the UI — CORS)
- *   npm install playwright (in frontend or repo root)
- * Run: node scripts/phase3-browser-e2e.mjs
+ *   Playwright is not installed by this repo (a root package.json made Next
+ *   pick the wrong workspace). Point NODE_PATH at a node_modules that
+ *   contains playwright, then: node scripts/phase3-browser-e2e.mjs
  */
 import { chromium } from 'playwright';
 import { execSync } from 'node:child_process';

@@ -1,5 +1,31 @@
 # AI Log
 
+## Required cases
+
+### 1. Money was proposed as a float
+
+1. **AI Claim / Proposal:** Store and add prices as `float64` baht, including a client-supplied total.
+2. **Truth / Fact:** Money is `int64` satang. Prices and totals come from the database (`price_satang`, `amount_satang`). A float cannot represent 0.10 baht exactly, and a client total can be forged.
+3. **How it was Detected:** Code review against `AGENTS.md` and `TestPayment_SuccessIssuesTickets`, which asserts `amount_satang` equals the sum of booking-item prices, not the request body.
+4. **Fix / Solution:** Payment, seat, and booking-item amounts are `int64`. `PaymentRepository.ItemStats` sums `price_satang` in SQL. API fields are `*_satang`.
+5. **Added Rule / Guideline:** Never use `float32` or `float64` for money. Persist and calculate satang as `int64`. Ignore any price or total sent by the client.
+
+### 2. An audit correction was proposed as an update
+
+1. **AI Claim / Proposal:** Fix a wrong `reason_code` by `UPDATE` on `payment_events` or `booking_events`, or `DELETE` the bad row and insert a replacement.
+2. **Truth / Fact:** Those tables are append-only. Triggers `payment_events_append_only` and `booking_events_append_only` reject `UPDATE` and `DELETE`. A correction is a new event.
+3. **How it was Detected:** `TestPayment_EventTablesAppendOnly` and `TestAdmin_RefundFlowEventsAppendOnly` run the update and delete and require an error containing `append-only`.
+4. **Fix / Solution:** `internal/audit` only `INSERT`s, inside the same transaction as the state change. Failed attempts that roll back are logged afterward with a new row, not by editing an old one.
+5. **Added Rule / Guideline:** Never `UPDATE` or `DELETE` `booking_events` or `payment_events`. If a logged reason is wrong, append another event.
+
+### 3. Seat confirmation skipped the row lock
+
+1. **AI Claim / Proposal:** A Redis `SET NX` hold is enough. Load the booking with a plain `SELECT`, then insert items, with no `FOR UPDATE`.
+2. **Truth / Fact:** Two requests can pass a check-then-act before either commits. Redis can also be down. The booking row must be locked with `SELECT ... FOR UPDATE` inside the transaction, and the partial unique index on active booking items is the last line of defence.
+3. **How it was Detected:** `go test ./... -race -count=1`, specifically `TestBooking_ConcurrentSameSeat`: exactly one of the concurrent bookings for the same seat succeeds.
+4. **Fix / Solution:** `repository/booking.go` locks the booking with `FOR UPDATE` and locks due rows with `FOR UPDATE SKIP LOCKED` for the expiry job. Payment confirmation locks the payment row the same way before it re-checks status.
+5. **Added Rule / Guideline:** Any transaction that sells, expires, cancels, pays, or refunds a booking locks the row with `FOR UPDATE` and re-checks status inside that transaction. Do not treat the Redis hold as the guarantee.
+
 ## Phase 2 — Catalog (session summary)
 
 ### 1. Overview
@@ -174,3 +200,59 @@ Other deliverables (not “fixes”): sold-seat assertions after pay, concurrent
 **Note:** Phase 4 has no Playwright script yet (unlike Phase 3 `scripts/phase3-browser-e2e.mjs`); browser criteria rely on documented human verification.
 
 **Suggested tag:** `git tag phase-4-done` on `f8eab09` (or after this doc commit).
+
+---
+
+## Log Entry: Phase 5 Verification & Final Sign-Off
+
+- **Date:** 2026-10-04
+- **Phase:** Phase 5 (Admin & Refund Management)
+- **Status:** Completed (`phase-5-done`)
+
+### Summary of Activities & Fixes
+
+1. **Verification failures & fixes**
+   - **P5-40:** Refactored `ProcessRefund` so `RefundProvider` runs **outside** the active database transaction (claim in tx → provider call → finalize in a second tx). Avoids holding row locks during mock/provider I/O and matches `/review-booking-safety` expectations. Evidence: `backend/internal/service/refund.go` (claim/finalize split); `TestAdmin_RefundProviderFailureThenRetry`, concurrent/idempotency tests.
+   - **Frontend lint/build:** Resolved `react-hooks/set-state-in-effect` on `frontend/src/app/admin/payments/page.tsx` by deriving `status` and `page` from URL search params instead of syncing with `setState` in `useEffect`.
+
+2. **E2E & manual verification**
+   - **P5-26:** End-to-end refund workflow verified in Admin UI: `NEEDS_REFUND` payment → Dashboard → request/process refund → booking timeline shows full event chain (human run, 2026-10-03/04).
+   - **P5-42:** Human code review and sign-off on refund transaction logic, safety bounds, and business rules (eligibility, idempotency, seat release vs started showtime, append-only audit).
+
+3. **Automated checks**
+   - **Backend:** `go vet ./...`, `gofmt -l .` (clean), `go test ./... -race -count=1` — all packages OK; admin/refund coverage in `admin_integration_test.go` (`TestAdmin_*`).
+   - **Frontend:** `npm run lint`, `npx tsc --noEmit`, `npm run build` — zero errors.
+   - **`/verify-phase` (2026-10-03):** **PHASE VERIFIED** — P5-00 through P5-42 with test names, curl `/healthz` + `/admin/stats`, human items attested.
+
+### Human sign-offs (Phase 5)
+
+| ID | Status | Note |
+|----|--------|------|
+| **P5-02** | **PASS** | Non-admin blocked on `/admin/*` via `AdminGuard` + browser check with regular user. |
+| **P5-26** | **PASS** | Full NEEDS_REFUND → admin refund → timeline (UI). |
+| **P5-42** | **PASS** | Refund rules and transaction code reviewed line-by-line. |
+
+### Deliverables (scope reminder)
+
+Admin APIs and UI (`/admin/stats`, events/showtimes CRUD, bookings/timeline, payments/refunds, check-in), `docs/api.md` § Admin (Phase 5), mock `RefundProvider` (tests override for failure paths). Out of scope: real payment provider, partial refunds unless approved.
+
+**Gate:** Commit Phase 5 work and `git tag phase-5-done` before Phase 6 (`docs/plan.md` §0).
+
+---
+
+## Log Entry: Phase 6 Verification & Final Sign-Off
+
+- **Date:** 2026-10-04
+- **Phase:** Phase 6 (Hardening + Delivery)
+- **Status:** **PHASE VERIFIED (PASS 100%)**
+
+Human sign-off on the items left open by the automated `/verify-phase` run:
+
+| ID | Status | Note |
+|----|--------|------|
+| **P6-09** | **PASS** | Every page's loading, empty, and error states checked in the browser. Booking, payment, and refund states have their own messages. No console errors on the main flow. |
+| **P6-12** | **PASS** | Clean-room clone in a fresh directory, following only `README.md`. Setup succeeded. |
+| **P6-13** | **PASS** | Demo from `docs/demo-script.md` rehearsed and finished in about 5 minutes. |
+| **P6-16** | **PASS** | Booking, payment, refund, and auth code reviewed. Ready for a walkthrough. |
+
+Automated checks the same day: `docker compose ps` healthy; `go vet`, `gofmt -l` clean, `go test ./... -race -count=1`; frontend lint, `tsc`, and build; curl `/healthz`, `/api/v1/events`, unauthenticated `/api/v1/admin/stats` → 401, bad webhook signature → 401; `scripts/checkdb.sql` rules 1–8 PASS. P6-00 through P6-16 are checked in `docs/plan.md`. Commit and tag are not done yet.

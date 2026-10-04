@@ -169,7 +169,7 @@ func (h *AdminHandler) ListRefunds(c *gin.Context) {
 }
 
 func (h *AdminHandler) CheckIn(c *gin.Context) {
-	v, err := h.svc.CheckIn(reqCtx(c), c.Param("code"))
+	v, err := h.svc.CheckIn(reqCtx(c), c.GetString(middleware.CtxUserID), c.Param("code"))
 	respond(c, http.StatusOK, v, err)
 }
 

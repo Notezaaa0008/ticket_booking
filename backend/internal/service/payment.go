@@ -234,6 +234,28 @@ func (s *PaymentService) recordCreateFailure(ctx context.Context, userID string,
 	})
 }
 
+// recordWebhookRejection commits WEBHOOK_RECEIVED and one WEBHOOK_REJECTED in a single
+// transaction. There is no payment state change on these paths. A failed write is logged
+// to stderr; the caller still returns its original error.
+func (s *PaymentService) recordWebhookRejection(ctx context.Context, e audit.PaymentEvent, reason domain.ReasonCode) {
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditOpTimeout)
+	defer cancel()
+	received := e
+	received.EventType, received.Outcome, received.ReasonCode = domain.EvWebhookReceived, domain.OutcomeSuccess, ""
+	rejected := e
+	rejected.EventType, rejected.Outcome, rejected.ReasonCode = domain.EvWebhookRejected, domain.OutcomeFailure, reason
+	err := s.repo.Transaction(actx, func(tx *gorm.DB) error {
+		if err := audit.RecordPaymentEvent(actx, tx, received); err != nil {
+			return err
+		}
+		return audit.RecordPaymentEvent(actx, tx, rejected)
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "request_id=%v audit write failed (event=%s reason=%s): %v\n",
+			ctx.Value(RequestIDKey), domain.EvWebhookRejected, reason, err)
+	}
+}
+
 // recordPaymentFailure writes an event with the plain connection (outside any rolled-back
 // transaction). If that fails it logs to stderr; the caller keeps its original result.
 func (s *PaymentService) recordPaymentFailure(ctx context.Context, e audit.PaymentEvent) {
@@ -303,10 +325,9 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, raw []byte, sigHex s
 	valid, invalid := true, false
 
 	if !s.validSignature(raw, sigHex) {
-		s.recordPaymentFailure(ctx, audit.PaymentEvent{
-			EventType: domain.EvWebhookRejected, Outcome: domain.OutcomeFailure, ReasonCode: domain.ReasonInvalidSignature,
+		s.recordWebhookRejection(ctx, audit.PaymentEvent{
 			SignatureValid: &invalid, ActorType: domain.ActorGateway, RawPayload: auditPayload(raw),
-		})
+		}, domain.ReasonInvalidSignature)
 		return nil, domain.NewError(domain.ReasonInvalidSignature, "invalid signature")
 	}
 
@@ -314,16 +335,19 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, raw []byte, sigHex s
 	if err := json.Unmarshal(raw, &in); err != nil || in.PaymentID == "" ||
 		(in.Status != webhookStatusSucceeded && in.Status != webhookStatusFailed) ||
 		(in.Status == webhookStatusSucceeded && in.AmountSatang == nil) {
-		s.recordPaymentFailure(ctx, audit.PaymentEvent{
-			EventType: domain.EvWebhookRejected, Outcome: domain.OutcomeFailure, ReasonCode: domain.ReasonMalformedPayload,
+		s.recordWebhookRejection(ctx, audit.PaymentEvent{
 			SignatureValid: &valid, ActorType: domain.ActorGateway, RawPayload: auditPayload(raw),
-		})
+		}, domain.ReasonMalformedPayload)
 		return nil, domain.NewError(domain.ReasonMalformedPayload, "malformed payload")
 	}
 
 	var known *repository.PaymentRow
 	if u, err := uuid.Parse(in.PaymentID); err == nil {
 		if known, err = s.repo.ByID(ctx, u.String()); err != nil {
+			s.recordWebhookRejection(ctx, audit.PaymentEvent{
+				SignatureValid: &valid, ActorType: domain.ActorGateway, RawPayload: raw,
+				AmountSatang: in.AmountSatang, ProviderRef: in.ProviderRef,
+			}, domain.ReasonInternalError)
 			return nil, err
 		}
 	}

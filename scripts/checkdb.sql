@@ -44,6 +44,16 @@ FROM (
             JOIN booking_items bi ON bi.id = t.booking_item_id
             JOIN bookings b ON b.id = bi.booking_id
            WHERE t.status = 'VOID' AND b.status <> 'REFUNDED')
+  UNION ALL
+  SELECT '8  no audit event references a missing booking or payment',
+         (SELECT count(*) FROM booking_events e
+           WHERE e.booking_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.id = e.booking_id))
+         + (SELECT count(*) FROM payment_events e
+           WHERE (e.payment_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.id = e.payment_id))
+              OR (e.booking_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.id = e.booking_id)))
 ) checks
 ORDER BY rule;
 

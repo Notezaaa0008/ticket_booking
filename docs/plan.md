@@ -44,12 +44,12 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 
 | Phase | ชื่อ | สถานะ | Commit/Tag | วันที่ผ่าน |
 |---|---|---|---|---|
-| 1 | Foundation | ☐ | | |
-| 2 | Catalog | ☐ | | |
-| 3 | Auth + Booking | ☐ | | |
+| 1 | Foundation | ☑ PHASE VERIFIED (PASS 100%) | phase-1-done | 2026-10-03 |
+| 2 | Catalog | ☑ PHASE VERIFIED (PASS 100%) | phase-2-done | 2026-10-03 |
+| 3 | Auth + Booking | ☑ PHASE VERIFIED (PASS 100%) | phase-3-done | 2026-10-03 |
 | 4 | Payment + Ticket | ☑ PHASE VERIFIED (PASS 100%) | feat(phase4) | 2026-10-03 |
 | 5 | Admin + Refund | ☑ PHASE VERIFIED (PASS 100%) | phase-5-done | 2026-10-03 |
-| 6 | Hardening + Delivery | ☑ PHASE VERIFIED (PASS 100%) | — | 2026-10-04 |
+| 6 | Hardening + Delivery | ☑ PHASE VERIFIED (PASS 100%) | phase-6-done | 2026-10-04 |
 
 ---
 
@@ -64,25 +64,25 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 **ต้องให้คนอนุมัติ:** ทุกบรรทัดของ migration, รายการ dependency, ค่าใน `.env.example`
 
 ### Checklist
-- [ ] **P1-00** ชุดตรวจมาตรฐานผ่าน
-- [ ] **P1-01** `docker compose up -d` แล้ว `docker compose ps` เห็น postgres และ redis เป็น healthy
-- [ ] **P1-02** migrate up สำเร็จ และ `\dt` เห็น **11 ตาราง**: users, events, showtimes, seats, bookings, booking_items, payments, tickets, booking_events, payment_events, refunds
-- [ ] **P1-03** มี partial unique index ครบ 3 ตัว: `uq_booking_items_active_seat`, `uq_payments_one_pending_per_booking`, `uq_refunds_one_active_per_payment` (ตรวจด้วย `\d ชื่อตาราง`)
-- [ ] **P1-04** `UPDATE booking_events SET reason_code='x'` และ `DELETE FROM payment_events` ถูกปฏิเสธด้วย error append-only (ทดสอบเองด้วย psql)
-- [ ] **P1-05** migrate down แล้ว up ซ้ำได้โดยไม่พัง
-- [ ] **P1-06** migration ตรงกับ `docs/schema.md` ทุกตาราง ทุกคอลัมน์ ทุก CHECK (ไม่มีคอลัมน์เกินหรือขาด) และไม่ใช้ AutoMigrate
-- [ ] **P1-07** `internal/domain` มีค่าคงที่ครบตาม `AGENTS.md` ข้อ 13.3 และมี test ว่าไม่ซ้ำ/ไม่ว่าง
-- [ ] **P1-08** `internal/audit` ตรวจค่าที่ไม่ถูกต้องก่อนเขียน (ปฏิเสธ `event_type` / `outcome` / `actor_type` ที่ไม่รู้จัก); ทดสอบการเขียนจริงใน Phase 3
-- [ ] **P1-09** รัน `scripts/verify-schema.sql` ได้ PASS ครบ 9 ข้อ
-- [ ] **P1-10** `curl localhost:8080/healthz` ตอบ 200 พร้อม db/redis เป็น ok
-- [ ] **P1-11** หยุด Redis (`docker compose stop redis`) แล้ว `/healthz` รายงาน degraded แต่ server ไม่ crash
-- [ ] **P1-12** config ขาดตัวแปรจำเป็น → server ไม่เริ่มและบอกชื่อตัวแปรที่ขาด
-- [ ] **P1-13** seed เป็น SQL (`backend/seed/seed.sql`) รันซ้ำได้ ไม่เกิดข้อมูลซ้ำ และรหัสผ่านเป็น bcrypt hash (ดูใน DB)
-- [ ] **P1-14** หน้าเว็บแรกแสดงสถานะ backend/database/redis ในเบราว์เซอร์จริง
-- [ ] **P1-15** ไม่มี secret ใน git: มีแต่ `.env.example`, `.env` ถูก ignore (`git grep -i secret`)
-- [ ] **P1-16** README บอกคำสั่งครบ: start infra, migrate, seed (`psql -f backend/seed/seed.sql`), run backend, run frontend, run tests
-- [ ] **P1-17** ไม่มีงานของ Phase 2 ขึ้นไปแอบเข้ามา (ดู `git diff --stat`)
-- [ ] **P1-18** 👤 คนอ่าน migration ครบทุกบรรทัดและอนุมัติแล้ว
+- [x] **P1-00** ชุดตรวจมาตรฐานผ่าน
+- [x] **P1-01** `docker compose up -d` แล้ว `docker compose ps` เห็น postgres และ redis เป็น healthy
+- [x] **P1-02** migrate up สำเร็จ และ `\dt` เห็น **11 ตาราง**: users, events, showtimes, seats, bookings, booking_items, payments, tickets, booking_events, payment_events, refunds
+- [x] **P1-03** มี partial unique index ครบ 3 ตัว: `uq_booking_items_active_seat`, `uq_payments_one_pending_per_booking`, `uq_refunds_one_active_per_payment` (ตรวจด้วย `\d ชื่อตาราง`)
+- [x] **P1-04** `UPDATE booking_events SET reason_code='x'` และ `DELETE FROM payment_events` ถูกปฏิเสธด้วย error append-only (ทดสอบเองด้วย psql)
+- [x] **P1-05** migrate down แล้ว up ซ้ำได้โดยไม่พัง
+- [x] **P1-06** migration ตรงกับ `docs/schema.md` ทุกตาราง ทุกคอลัมน์ ทุก CHECK (ไม่มีคอลัมน์เกินหรือขาด) และไม่ใช้ AutoMigrate
+- [x] **P1-07** `internal/domain` มีค่าคงที่ครบตาม `AGENTS.md` ข้อ 13.3 และมี test ว่าไม่ซ้ำ/ไม่ว่าง
+- [x] **P1-08** `internal/audit` ตรวจค่าที่ไม่ถูกต้องก่อนเขียน (ปฏิเสธ `event_type` / `outcome` / `actor_type` ที่ไม่รู้จัก); ทดสอบการเขียนจริงใน Phase 3
+- [x] **P1-09** รัน `scripts/verify-schema.sql` ได้ PASS ครบ 9 ข้อ
+- [x] **P1-10** `curl localhost:8080/healthz` ตอบ 200 พร้อม db/redis เป็น ok
+- [x] **P1-11** หยุด Redis (`docker compose stop redis`) แล้ว `/healthz` รายงาน degraded แต่ server ไม่ crash
+- [x] **P1-12** config ขาดตัวแปรจำเป็น → server ไม่เริ่มและบอกชื่อตัวแปรที่ขาด
+- [x] **P1-13** seed เป็น SQL (`backend/seed/seed.sql`) รันซ้ำได้ ไม่เกิดข้อมูลซ้ำ และรหัสผ่านเป็น bcrypt hash (ดูใน DB)
+- [x] **P1-14** หน้าเว็บแรกแสดงสถานะ backend/database/redis ในเบราว์เซอร์จริง
+- [x] **P1-15** ไม่มี secret ใน git: มีแต่ `.env.example`, `.env` ถูก ignore (`git grep -i secret`)
+- [x] **P1-16** README บอกคำสั่งครบ: start infra, migrate, seed (`psql -f backend/seed/seed.sql`), run backend, run frontend, run tests
+- [x] **P1-17** ไม่มีงานของ Phase 2 ขึ้นไปแอบเข้ามา (ดู `git diff --stat`)
+- [x] **P1-18** 👤 คนอ่าน migration ครบทุกบรรทัดและอนุมัติแล้ว
 
 ---
 
@@ -97,21 +97,21 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 **ต้องให้คนอนุมัติ:** SQL คำนวณสถานะที่นั่ง, ดีไซน์ cache key, dependency ใหม่
 
 ### Checklist
-- [ ] **P2-00** ชุดตรวจมาตรฐานผ่าน
-- [ ] **P2-01** `GET /events` รองรับ `q`, `from`, `to`, `page`, `limit` (ทดสอบด้วย curl อย่างน้อย 3 แบบ รวม 1 แบบที่ไม่มีผลลัพธ์)
-- [ ] **P2-02** พารามิเตอร์ผิด (วันที่เสีย, page ติดลบ, limit เกิน 100) ได้ 400 `VALIDATION_FAILED` ในรูปแบบ error มาตรฐาน
-- [ ] **P2-03** แสดงเฉพาะ event `published` ที่มีรอบ `on_sale` ในอนาคต (event ที่เป็น draft หรือมีแต่รอบอดีตไม่ปรากฏ)
-- [ ] **P2-04** ครั้งแรกสร้าง cache key `events:list:*` ใน Redis (ตรวจด้วย `redis-cli keys`) และครั้งที่ 2 ภายใน 30 วินาทีมาจาก cache
-- [ ] **P2-05** ปิด Redis แล้ว `GET /events` ยังตอบได้จาก DB ไม่ error
-- [ ] **P2-06** `GET /events/:id` ตอบรายละเอียดและรอบฉาย พร้อมจำนวนที่นั่งว่าง และ 404 เมื่อไม่พบหรือไม่ได้ published
-- [ ] **P2-07** `GET /showtimes/:id/seats` คืนสถานะ available/held/sold ถูกต้อง ทดสอบโดย insert ข้อมูลทดสอบใน DB ด้วย SQL: held (PENDING ยังไม่หมดเวลา), sold (PAID), และ **PENDING ที่หมดเวลาแล้วต้องแสดงเป็น available**
-- [ ] **P2-08** ผลรวม `summary` ตรงกับจำนวนที่นั่งจริงแต่ละสถานะ และใช้ query เดียว (ไม่มี N+1)
-- [ ] **P2-09** เงินทั้งหมดเป็น satang แบบจำนวนเต็ม ใน JSON ไม่มีทศนิยม
-- [ ] **P2-10** ทุกหน้ามี loading / empty / error state (ทดสอบด้วยการปิด backend)
-- [ ] **P2-11** ผังที่นั่งแสดง 4 สถานะ (available, held, sold, selected) และเลือกที่นั่งเพื่อดูยอดรวมได้ แต่ปุ่มจองยังปิดอยู่
-- [ ] **P2-12** เงื่อนไขค้นหาอยู่ใน URL query string (ส่งลิงก์แล้วเห็นผลเดิม)
-- [ ] **P2-13** `docs/api.md` มีทั้ง 3 endpoint (params, response, error)
-- [ ] **P2-14** ไม่มี API เขียนข้อมูลการจอง ไม่มีโค้ด auth/booking หลุดเข้ามา
+- [x] **P2-00** ชุดตรวจมาตรฐานผ่าน
+- [x] **P2-01** `GET /events` รองรับ `q`, `from`, `to`, `page`, `limit` (ทดสอบด้วย curl อย่างน้อย 3 แบบ รวม 1 แบบที่ไม่มีผลลัพธ์)
+- [x] **P2-02** พารามิเตอร์ผิด (วันที่เสีย, page ติดลบ, limit เกิน 100) ได้ 400 `VALIDATION_FAILED` ในรูปแบบ error มาตรฐาน
+- [x] **P2-03** แสดงเฉพาะ event `published` ที่มีรอบ `on_sale` ในอนาคต (event ที่เป็น draft หรือมีแต่รอบอดีตไม่ปรากฏ)
+- [x] **P2-04** ครั้งแรกสร้าง cache key `events:list:*` ใน Redis (ตรวจด้วย `redis-cli keys`) และครั้งที่ 2 ภายใน 30 วินาทีมาจาก cache
+- [x] **P2-05** ปิด Redis แล้ว `GET /events` ยังตอบได้จาก DB ไม่ error
+- [x] **P2-06** `GET /events/:id` ตอบรายละเอียดและรอบฉาย พร้อมจำนวนที่นั่งว่าง และ 404 เมื่อไม่พบหรือไม่ได้ published
+- [x] **P2-07** `GET /showtimes/:id/seats` คืนสถานะ available/held/sold ถูกต้อง ทดสอบโดย insert ข้อมูลทดสอบใน DB ด้วย SQL: held (PENDING ยังไม่หมดเวลา), sold (PAID), และ **PENDING ที่หมดเวลาแล้วต้องแสดงเป็น available**
+- [x] **P2-08** ผลรวม `summary` ตรงกับจำนวนที่นั่งจริงแต่ละสถานะ และใช้ query เดียว (ไม่มี N+1)
+- [x] **P2-09** เงินทั้งหมดเป็น satang แบบจำนวนเต็ม ใน JSON ไม่มีทศนิยม
+- [x] **P2-10** ทุกหน้ามี loading / empty / error state (ทดสอบด้วยการปิด backend)
+- [x] **P2-11** ผังที่นั่งแสดง 4 สถานะ (available, held, sold, selected) และเลือกที่นั่งเพื่อดูยอดรวมได้ แต่ปุ่มจองยังปิดอยู่
+- [x] **P2-12** เงื่อนไขค้นหาอยู่ใน URL query string (ส่งลิงก์แล้วเห็นผลเดิม)
+- [x] **P2-13** `docs/api.md` มีทั้ง 3 endpoint (params, response, error)
+- [x] **P2-14** ไม่มี API เขียนข้อมูลการจอง ไม่มีโค้ด auth/booking หลุดเข้ามา
 
 ---
 
@@ -126,43 +126,43 @@ Agent ต้องอ่านไฟล์นี้ก่อนเริ่ม�
 **ต้องให้คนอนุมัติ:** เวลา hold, จำนวนที่นั่งสูงสุด, อายุและที่เก็บ JWT, ค่า rate limit, ขั้นตอน algorithm การจองและ transaction (Q1-Q5 ใน Task Prompt)
 
 ### Checklist: Auth
-- [ ] **P3-00** ชุดตรวจมาตรฐานผ่าน
-- [ ] **P3-01** รหัสผ่านถูก hash ด้วย bcrypt (ดูใน DB ต้องไม่เห็นข้อความจริง)
-- [ ] **P3-02** register: email ซ้ำ → 409, ข้อมูลไม่ถูกต้อง → 400, `role` ที่ client ส่งมาถูกละเลย (ได้ `user` เสมอ)
-- [ ] **P3-03** login ผิด → 401 ข้อความทั่วไป (ไม่บอกว่า email มีหรือไม่), login ถูก → ได้ JWT
-- [ ] **P3-04** เรียก endpoint ที่ต้อง login โดยไม่มี/หมดอายุ/ปลอม token → 401
-- [ ] **P3-05** rate limit ที่ login และการจอง ตอบ 429 `RATE_LIMITED` และเมื่อ Redis ล่มเป็น fail-open พร้อม log warning
-- [ ] **P3-06** 👤 ที่เก็บ JWT ฝั่ง frontend ตามที่คนอนุมัติ และบันทึกข้อแลกเปลี่ยนไว้ใน README
+- [x] **P3-00** ชุดตรวจมาตรฐานผ่าน
+- [x] **P3-01** รหัสผ่านถูก hash ด้วย bcrypt (ดูใน DB ต้องไม่เห็นข้อความจริง)
+- [x] **P3-02** register: email ซ้ำ → 409, ข้อมูลไม่ถูกต้อง → 400, `role` ที่ client ส่งมาถูกละเลย (ได้ `user` เสมอ)
+- [x] **P3-03** login ผิด → 401 ข้อความทั่วไป (ไม่บอกว่า email มีหรือไม่), login ถูก → ได้ JWT
+- [x] **P3-04** เรียก endpoint ที่ต้อง login โดยไม่มี/หมดอายุ/ปลอม token → 401
+- [x] **P3-05** rate limit ที่ login และการจอง ตอบ 429 `RATE_LIMITED` และเมื่อ Redis ล่มเป็น fail-open พร้อม log warning
+- [x] **P3-06** 👤 ที่เก็บ JWT ฝั่ง frontend ตามที่คนอนุมัติ และบันทึกข้อแลกเปลี่ยนไว้ใน README
 
 ### Checklist: Booking
-- [ ] **P3-10** **Race test:** 20 goroutine จองที่นั่งเดียวกัน สำเร็จ 1, ที่เหลือ 409, ใน DB มี `booking_items` active ของที่นั่งนั้น 1 รายการ รัน `go test -race -count=10` ผ่านทั้ง 10 รอบ (แปะ output)
-- [ ] **P3-11** จองหลายที่นั่งโดยที่นั่งหนึ่งถูกถือแล้ว → 409 และไม่มี Redis hold ของที่นั่งอื่นค้าง (ตรวจด้วย `redis-cli keys 'hold:*'`)
-- [ ] **P3-12** ปิด Redis แล้วจองได้ (`hold_mode = db_fallback`) และยังกันจองซ้ำได้ (test)
-- [ ] **P3-13** booking หมดเวลา: job ตั้ง `EXPIRED`, `active=false`, ที่นั่งกลับมาว่าง และมี event `BOOKING_EXPIRED` ที่ actor เป็น `SYSTEM`
-- [ ] **P3-14** lazy expiry: จองที่นั่งที่ถูก PENDING ที่หมดเวลาแล้วถือค้างอยู่ได้สำเร็จ
-- [ ] **P3-15** ยกเลิก: เจ้าของยกเลิก PENDING ได้, คนอื่นได้ 404, สถานะอื่นได้ 409 พร้อม event `BOOKING_CANCEL_REJECTED`
-- [ ] **P3-16** ราคาและยอดรวมมาจาก DB เสมอ (ส่งค่าปลอมจาก client แล้วถูกละเลย)
-- [ ] **P3-17** จำกัดจำนวนที่นั่งต่อการจองตามที่อนุมัติ, ที่นั่งซ้ำใน request เดียวกัน/ที่นั่งคนละรอบ/รอบปิดขาย → 400 หรือ 422 ตามเหมาะสม
-- [ ] **P3-18** `GET /bookings/:id` ของคนอื่น → 404, และ response มี `seconds_remaining` และ `status_reason` เมื่อ EXPIRED/CANCELLED
-- [ ] **P3-19** ปิดเว็บ-เปิดใหม่ระหว่างที่ booking ยังไม่หมดเวลา ยังเห็น countdown ที่ถูกต้อง (คำนวณจาก `expires_at` ของเซิร์ฟเวอร์)
+- [x] **P3-10** **Race test:** 20 goroutine จองที่นั่งเดียวกัน สำเร็จ 1, ที่เหลือ 409, ใน DB มี `booking_items` active ของที่นั่งนั้น 1 รายการ รัน `go test -race -count=10` ผ่านทั้ง 10 รอบ (แปะ output)
+- [x] **P3-11** จองหลายที่นั่งโดยที่นั่งหนึ่งถูกถือแล้ว → 409 และไม่มี Redis hold ของที่นั่งอื่นค้าง (ตรวจด้วย `redis-cli keys 'hold:*'`)
+- [x] **P3-12** ปิด Redis แล้วจองได้ (`hold_mode = db_fallback`) และยังกันจองซ้ำได้ (test)
+- [x] **P3-13** booking หมดเวลา: job ตั้ง `EXPIRED`, `active=false`, ที่นั่งกลับมาว่าง และมี event `BOOKING_EXPIRED` ที่ actor เป็น `SYSTEM`
+- [x] **P3-14** lazy expiry: จองที่นั่งที่ถูก PENDING ที่หมดเวลาแล้วถือค้างอยู่ได้สำเร็จ
+- [x] **P3-15** ยกเลิก: เจ้าของยกเลิก PENDING ได้, คนอื่นได้ 404, สถานะอื่นได้ 409 พร้อม event `BOOKING_CANCEL_REJECTED`
+- [x] **P3-16** ราคาและยอดรวมมาจาก DB เสมอ (ส่งค่าปลอมจาก client แล้วถูกละเลย)
+- [x] **P3-17** จำกัดจำนวนที่นั่งต่อการจองตามที่อนุมัติ, ที่นั่งซ้ำใน request เดียวกัน/ที่นั่งคนละรอบ/รอบปิดขาย → 400 หรือ 422 ตามเหมาะสม
+- [x] **P3-18** `GET /bookings/:id` ของคนอื่น → 404, และ response มี `seconds_remaining` และ `status_reason` เมื่อ EXPIRED/CANCELLED
+- [x] **P3-19** ปิดเว็บ-เปิดใหม่ระหว่างที่ booking ยังไม่หมดเวลา ยังเห็น countdown ที่ถูกต้อง (คำนวณจาก `expires_at` ของเซิร์ฟเวอร์)
 
 ### Checklist: Log สถานะ
-- [ ] **P3-20** จองสำเร็จ → มี `BOOKING_CREATED` / SUCCESS พร้อม metadata (`seat_ids`, `total_satang`, `expires_at`, `hold_mode`) เขียนใน transaction เดียวกับ booking
-- [ ] **P3-21** จองล้มเหลวทุกแบบ → มี `BOOKING_CREATE_FAILED` / FAILURE พร้อม `reason_code` ถูกต้อง (`SEAT_UNAVAILABLE`, `VALIDATION_FAILED`, `TOO_MANY_SEATS`, `SHOWTIME_NOT_ON_SALE` ฯลฯ) และ metadata (`requested_seat_ids`, `conflicting_seat_ids`)
-- [ ] **P3-22** ใน race test: `booking_events` มี `BOOKING_CREATED` 1 แถว และ `BOOKING_CREATE_FAILED` 19 แถว (ผู้ตรวจ query เอง: `SELECT event_type, outcome, reason_code FROM booking_events ORDER BY created_at;`)
-- [ ] **P3-23** ถ้าเขียน log ล้มเหลว ระบบยังส่ง error เดิมกลับ ไม่กลืน error และบันทึก stderr พร้อม request id
-- [ ] **P3-24** ทุก outcome path ของ Phase นี้มี test ที่ตรวจ `event_type`, `outcome`, `reason_code` (รวมถึงการพิสูจน์ว่า `internal/audit` เขียน event ได้จริงทั้งในและนอก transaction — ต่อจาก P1-08)
+- [x] **P3-20** จองสำเร็จ → มี `BOOKING_CREATED` / SUCCESS พร้อม metadata (`seat_ids`, `total_satang`, `expires_at`, `hold_mode`) เขียนใน transaction เดียวกับ booking
+- [x] **P3-21** จองล้มเหลวทุกแบบ → มี `BOOKING_CREATE_FAILED` / FAILURE พร้อม `reason_code` ถูกต้อง (`SEAT_UNAVAILABLE`, `VALIDATION_FAILED`, `TOO_MANY_SEATS`, `SHOWTIME_NOT_ON_SALE` ฯลฯ) และ metadata (`requested_seat_ids`, `conflicting_seat_ids`)
+- [x] **P3-22** ใน race test: `booking_events` มี `BOOKING_CREATED` 1 แถว และ `BOOKING_CREATE_FAILED` 19 แถว (ผู้ตรวจ query เอง: `SELECT event_type, outcome, reason_code FROM booking_events ORDER BY created_at;`)
+- [x] **P3-23** ถ้าเขียน log ล้มเหลว ระบบยังส่ง error เดิมกลับ ไม่กลืน error และบันทึก stderr พร้อม request id
+- [x] **P3-24** ทุก outcome path ของ Phase นี้มี test ที่ตรวจ `event_type`, `outcome`, `reason_code` (รวมถึงการพิสูจน์ว่า `internal/audit` เขียน event ได้จริงทั้งในและนอก transaction — ต่อจาก P1-08)
 
 ### Checklist: Frontend
-- [ ] **P3-30** หน้า login/register, route ที่ต้อง login redirect ไป `/login`, มี logout
-- [ ] **P3-31** จองซ้อนแล้วเห็นว่าที่นั่งไหนถูกแย่ง, ผังรีเฟรช, และที่นั่งอื่นที่เลือกไว้ยังอยู่
-- [ ] **P3-32** `/bookings/[id]` แสดงสถานะแยกชัด: PENDING (นับถอยหลัง), EXPIRED (พร้อมเหตุผล), CANCELLED, PAID
-- [ ] **P3-33** ทดสอบด้วยเบราว์เซอร์ 2 หน้าต่างพร้อมกัน เลือกที่นั่งเดียวกัน ผลต้องเป็นสำเร็จ 1 ล้มเหลว 1 (หรือใช้ Playwright MCP)
+- [x] **P3-30** หน้า login/register, route ที่ต้อง login redirect ไป `/login`, มี logout
+- [x] **P3-31** จองซ้อนแล้วเห็นว่าที่นั่งไหนถูกแย่ง, ผังรีเฟรช, และที่นั่งอื่นที่เลือกไว้ยังอยู่
+- [x] **P3-32** `/bookings/[id]` แสดงสถานะแยกชัด: PENDING (นับถอยหลัง), EXPIRED (พร้อมเหตุผล), CANCELLED, PAID
+- [x] **P3-33** ทดสอบด้วยเบราว์เซอร์ 2 หน้าต่างพร้อมกัน เลือกที่นั่งเดียวกัน ผลต้องเป็นสำเร็จ 1 ล้มเหลว 1 (หรือใช้ Playwright MCP)
 
 ### Checklist: อื่น ๆ
-- [ ] **P3-40** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High
-- [ ] **P3-41** `docs/api.md` อัปเดตทุก endpoint พร้อมรหัส error และ event ที่เขียน
-- [ ] **P3-42** 👤 คนอ่านโค้ด transaction + Redis ทุกบรรทัดและอธิบายได้ด้วยคำพูดตัวเอง
+- [x] **P3-40** `/review-booking-safety` ไม่พบ VIOLATION ระดับ High
+- [x] **P3-41** `docs/api.md` อัปเดตทุก endpoint พร้อมรหัส error และ event ที่เขียน
+- [x] **P3-42** 👤 คนอ่านโค้ด transaction + Redis ทุกบรรทัดและอธิบายได้ด้วยคำพูดตัวเอง
 
 ---
 

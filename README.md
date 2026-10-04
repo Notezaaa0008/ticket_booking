@@ -48,9 +48,12 @@ docker compose exec -T postgres psql -U ticket -d ticket_booking -f /scripts/che
 ```
 
 ## Security (frontend auth)
-**Phase 3 decision (human-approved):** JWT in **localStorage** for MVP speed — explicit tradeoff vs httpOnly cookies (favors avoiding CSRF cookie complexity; accepts XSS can exfiltrate the token if script runs on this origin).
-
-Implementation: `frontend/src/lib/api.ts` (`tb_token`) sends `Authorization: Bearer` on API calls. Mitigations: strict CSP, dependency hygiene, input handling, no secrets in client bundles. Revisit httpOnly + SameSite cookies before production hardening if threat model requires it.
+- **Token Storage**: JWT is stored in `localStorage` (`tb_token`) and attached via `Authorization: Bearer <token>` in `frontend/src/lib/api.ts`.
+- **XSS Mitigations**:
+  - Strict Content Security Policy (CSP) headers.
+  - Strict dependency hygiene (zero untrusted third-party packages).
+  - Proper input sanitization across all React components.
+  - Zero sensitive secrets exposed in client-side bundles.
 
 ## Design notes
 - **PostgreSQL is the source of truth.** A partial unique index (`booking_items(seat_id) WHERE active`) makes double booking impossible; Redis `SET NX EX` is only the fast path and TTL. If Redis is down the system falls back to the database alone.

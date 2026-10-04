@@ -1,6 +1,6 @@
 # Ticket Booking System
 
-Search showtimes and seats, book with a timed seat hold, pay through a mock gateway, receive tickets with QR codes. Admin area for events, bookings, payments and refunds.
+Search showtimes and seats, book with a timed seat hold, pay through a mock gateway, receive tickets with QR codes. Admin area for events, bookings and payments.
 
 **Stack:** Next.js (TypeScript) · Go + Gin + GORM · PostgreSQL 16 · Redis 7
 
